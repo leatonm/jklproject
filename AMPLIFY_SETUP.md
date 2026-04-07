@@ -34,8 +34,15 @@ To stop sandbox: Ctrl+C in the sandbox terminal.
 2. AWS Console → **Amplify** → **Create new app** → **Host web app** (fullstack / Gen 2 flow).
 3. **Connect** your Git provider → authorize → choose the **repository** and **branch** (e.g. `main`).
 4. Amplify should detect **`amplify.yml`** at the repo root. Build settings:
-   - **Backend**: `npm ci` + `npx ampx pipeline-deploy` (already in `amplify.yml`).
-   - **Frontend**: `npm run build`, artifact **`dist`** (Vite).
+   - **Backend**: `npm ci --ignore-scripts` + `npx ampx pipeline-deploy`.
+   - **Frontend**: `npm ci --ignore-scripts` + `npx ampx generate outputs` + `npm run build`, artifact **`dist`** (Vite).
+
+### If deployment failed (common causes)
+
+1. **Stale `amplify.yml` on GitHub** — The repo must include the latest **`amplify.yml`** (with `--ignore-scripts` and **`generate outputs`** on the frontend). Commit and push, then **Redeploy** in Amplify.
+2. **Backend phase** — Open **Build logs** → **Backend** tab. Typical issues: IAM service role missing **CloudFormation / CDK** permissions, or the account/region needs **[CDK bootstrap](https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html)** for Amplify Gen 2.
+3. **Frontend phase** — If **`generate outputs`** fails, the backend for that branch may not have finished deploying; fix backend errors first.
+4. **Node version** — In Amplify Console → **Build settings** → **Build image settings**, set **Node.js** to **20.x** if the log shows engine or syntax errors.
 5. Create or select an **IAM service role** Amplify uses to deploy CloudFormation (the wizard can create one).
 6. **Save and deploy**.
 
