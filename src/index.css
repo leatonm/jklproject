@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-jkl-cream: #f9f8f3;
+  /** Full-width headers / hero strips (not the older gray-navy). */
+  --color-jkl-banner: #012668;
+  --color-jkl-navy: #1a2d4a;
+  --color-jkl-navy-muted: #2d3f5c;
+  --color-jkl-magenta: #d9236b;
+  --color-jkl-ink: #0f172a;
+  --color-jkl-accent-red: #e31837;
+  --color-jkl-blue: #2563eb;
+  --color-jkl-green: #16a34a;
+  --color-jkl-border: #e5e7eb;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font-sans);
+  background-color: var(--color-white);
+  color: var(--color-jkl-ink);
+  -webkit-font-smoothing: antialiased;
+  /* Normal vertical scroll with finger; no fixed-height trap on the page */
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#root {
+  min-height: 100dvh;
+}
