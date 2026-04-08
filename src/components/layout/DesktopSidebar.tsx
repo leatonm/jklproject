@@ -46,6 +46,15 @@ export function DesktopSidebar() {
           Student roster
         </NavLink>
         <NavLink
+          to="/quick-add"
+          className={({ isActive }) =>
+            cn(item, isActive && "bg-white text-jkl-navy shadow-sm")
+          }
+        >
+          <Plus className="h-5 w-5 shrink-0" aria-hidden />
+          Quick add
+        </NavLink>
+        <NavLink
           to="/activities"
           className={({ isActive }) => cn(item, isActive && "bg-white text-jkl-navy shadow-sm")}
         >
@@ -65,15 +74,6 @@ export function DesktopSidebar() {
         >
           <Search className="h-5 w-5 shrink-0" aria-hidden />
           Search
-        </NavLink>
-        <NavLink
-          to="/quick-add"
-          className={({ isActive }) =>
-            cn(item, isActive && "bg-white text-jkl-navy shadow-sm")
-          }
-        >
-          <Plus className="h-5 w-5 shrink-0" aria-hidden />
-          Quick add
         </NavLink>
       </nav>
       <button

@@ -13,7 +13,16 @@ Use **`npm run sandbox`** or **`npx ampx <command>`** for this codebase.
 
 ## 1. Local backend (sandbox)
 
-1. Configure AWS credentials on your machine (access keys or SSO) for an IAM user/role that can deploy Amplify backends (see [AWS account setup](https://docs.amplify.aws/react/start/account-setup/); policy example: **AmplifyBackendDeployFullAccess** plus usual CloudFormation permissions).
+If **`amplify_outputs.json`** contains placeholders like `REPLACE_USER_POOL_CLIENT_ID` or `REPLACE.appsync-api`, you only have the template from **`amplify_outputs.example.json`** (e.g. after `postinstall`). You need a **real** file from a successful deploy.
+
+1. Configure AWS credentials on your machine (access keys or SSO) for an IAM user/role that can deploy Amplify backends (see [AWS account setup](https://docs.amplify.aws/react/start/account-setup/); policy example: **AmplifyBackendDeployFullAccess** plus usual CloudFormation permissions). If the CLI reports **Failed to load default AWS credentials**, run:
+
+   ```bash
+   npx ampx configure profile
+   ```
+
+   …or use **`aws configure`** / **`aws sso login`** with `--profile YourProfile` and pass **`npx ampx sandbox --once --profile YourProfile`**.
+
 2. From the project root:
 
    ```bash
@@ -21,10 +30,16 @@ Use **`npm run sandbox`** or **`npx ampx <command>`** for this codebase.
    npm run sandbox
    ```
 
+   For a **single** deploy (writes `amplify_outputs.json` then exits, no file watch):
+
+   ```bash
+   npm run sandbox:once
+   ```
+
 3. Wait until deployment finishes. Root **`amplify_outputs.json`** is updated (gitignored). Your app reads it via `src/lib/configureAmplify.ts`.
 4. In another terminal: **`npm run dev`**.
 
-To stop sandbox: Ctrl+C in the sandbox terminal.
+To stop sandbox: Ctrl+C in the sandbox terminal (not needed if you used **`sandbox:once`**).
 
 ---
 

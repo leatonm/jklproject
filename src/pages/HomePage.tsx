@@ -1,96 +1,34 @@
-import { LogOut } from "lucide-react";
-import { useState } from "react";
+import { LogOut, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
+import { ActivityCoverImage } from "@/components/ActivityCoverImage";
+import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { HorizontalDragScroller } from "@/components/HorizontalDragScroller";
 import { LogoMark } from "@/components/LogoMark";
+import { DATA_PAGE_SIZE } from "@/data/constants";
+import { resourceLibraryItems } from "@/data/resourceLibrary";
+import {
+  listStudentsForProgram,
+  listUpcomingActivitiesForProgram,
+} from "@/data/programDataQueries";
+import { useProgram } from "@/data/ProgramContext";
+import { formatMediumDate } from "@/lib/formatMediumDate";
 import { cn } from "@/lib/cn";
 
-const activities = [
-  {
-    id: "1",
-    title: "Honourable Alumni Presenta…",
-    place: "Classroom 123",
-    date: "Sun, Oct 27",
-    tone: "from-violet-100 to-violet-50",
-  },
-  {
-    id: "2",
-    title: "Gym Class",
-    place: "Gym Location 1",
-    date: "Thu, Oct 24",
-    tone: "from-sky-100 to-sky-50",
-  },
-  {
-    id: "3",
-    title: "Food Bank",
-    place: "321 Ave",
-    date: "Mon, Sep 16",
-    tone: "from-amber-100 to-amber-50",
-  },
-  {
-    id: "4",
-    title: "Example Class 4",
-    place: "gym",
-    date: "Wed, Sep 11",
-    tone: "from-cyan-100 to-cyan-50",
-  },
-  {
-    id: "5",
-    title: "Example Class 5",
-    place: "Room 100",
-    date: "Mon, Sep 9",
-    tone: "from-indigo-100 to-indigo-50",
-  },
-  {
-    id: "6",
-    title: "Example Class 6",
-    place: "Local Park",
-    date: "Wed, Sep 4",
-    tone: "from-emerald-100 to-emerald-50",
-  },
-  {
-    id: "7",
-    title: "Example Class 7",
-    place: "School Field",
-    date: "Fri, Aug 30",
-    tone: "from-lime-100 to-lime-50",
-  },
-  {
-    id: "8",
-    title: "Example Class 8",
-    place: "Room 10",
-    date: "Tue, Aug 27",
-    tone: "from-orange-100 to-orange-50",
-  },
-  {
-    id: "9",
-    title: "Example Class 9",
-    place: "123 Main",
-    date: "Thu, Aug 22",
-    tone: "from-rose-100 to-rose-50",
-  },
-  {
-    id: "10",
-    title: "Community Kitchen",
-    place: "Cafeteria A",
-    date: "Sat, Aug 17",
-    tone: "from-fuchsia-100 to-fuchsia-50",
-  },
-  {
-    id: "11",
-    title: "Hiking Club",
-    place: "Trailhead Lot",
-    date: "Sun, Aug 11",
-    tone: "from-teal-100 to-teal-50",
-  },
-];
-
-const resources = [
-  { id: "1", title: "Mental Health Monday", subtitle: "Link below", color: "bg-violet-200" },
-  { id: "2", title: "February", subtitle: "Newsletter", color: "bg-zinc-200" },
-  { id: "3", title: "JKL history intro", subtitle: "Video", color: "bg-rose-200" },
-];
+const TONES = [
+  "from-violet-100 to-violet-50",
+  "from-sky-100 to-sky-50",
+  "from-amber-100 to-amber-50",
+  "from-cyan-100 to-cyan-50",
+  "from-indigo-100 to-indigo-50",
+  "from-emerald-100 to-emerald-50",
+  "from-lime-100 to-lime-50",
+  "from-orange-100 to-orange-50",
+  "from-rose-100 to-rose-50",
+  "from-fuchsia-100 to-fuchsia-50",
+  "from-teal-100 to-teal-50",
+] as const;
 
 /** One width for both carousels; cards use the same shell height below. */
 const HOME_CARD_SLIDE = "w-[min(280px,85vw)]";
@@ -100,9 +38,73 @@ const homeCardShell =
 
 type MetricMode = "students" | "attendance";
 
+type ActivityPreview = {
+  id: string;
+  title: string;
+  location?: string | null;
+  startsAt: string;
+  coverImageUrl?: string | null;
+  coverImageKey?: string | null;
+};
+
 export function HomePage() {
   const { signOutUser } = useAuth();
+  const {
+    programId,
+    loading: programLoading,
+    error: programError,
+    cloudDataDisabled,
+  } = useProgram();
   const [metric, setMetric] = useState<MetricMode>("students");
+  const [studentCount, setStudentCount] = useState<string>("—");
+  const [activitiesPreview, setActivitiesPreview] = useState<ActivityPreview[]>([]);
+  const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!programId || cloudDataDisabled) {
+        setStudentCount("—");
+        setActivitiesPreview([]);
+        setHomeLoadError(null);
+        return;
+      }
+      setHomeLoadError(null);
+      try {
+        const [stu, act] = await Promise.all([
+          listStudentsForProgram(programId, { limit: DATA_PAGE_SIZE }),
+          listUpcomingActivitiesForProgram(programId, 12),
+        ]);
+        const err = stu.errors?.[0]?.message ?? act.errors?.[0]?.message;
+        if (err) {
+          if (!cancelled) setHomeLoadError(err);
+          return;
+        }
+        const n = stu.data?.length ?? 0;
+        const more = Boolean(stu.nextToken);
+        if (!cancelled) {
+          setStudentCount(n === 0 && !more ? "0" : `${n}${more ? "+" : ""}`);
+        }
+        const upcoming = (act.data ?? []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          location: row.location,
+          startsAt: row.startsAt,
+          coverImageUrl: row.coverImageUrl,
+          coverImageKey: row.coverImageKey,
+        }));
+        if (!cancelled) setActivitiesPreview(upcoming);
+      } catch (e) {
+        if (!cancelled) {
+          setHomeLoadError(e instanceof Error ? e.message : "Failed to load home data.");
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, cloudDataDisabled]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -112,7 +114,14 @@ export function HomePage() {
           <p className="min-w-0 flex-1 truncate px-2 text-center text-sm font-semibold">
             JKL App Demo Location
           </p>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Link
+              to="/quick-add"
+              className="rounded-full p-2 text-white/90 hover:bg-white/10"
+              aria-label="Quick add"
+            >
+              <Plus className="h-5 w-5" />
+            </Link>
             <Link
               to="/reports"
               className="hidden rounded-full px-2 py-1 text-xs font-semibold text-white/90 hover:bg-white/10 sm:inline"
@@ -158,18 +167,31 @@ export function HomePage() {
           </div>
           <div className="py-8 text-center">
             <p className="text-5xl font-bold tabular-nums">
-              {metric === "students" ? "7" : "—"}
+              {metric === "students"
+                ? programLoading && !cloudDataDisabled
+                  ? "…"
+                  : studentCount
+                : "—"}
             </p>
             <p className="mt-1 text-sm text-white/80">
               {metric === "students"
-                ? "Students Enrolled"
-                : "Average across programs"}
+                ? cloudDataDisabled
+                  ? "Sign in with Cognito to load roster counts"
+                  : "Students on first page (tap Reports → Run report for more)"
+                : "Average attendance when the attendance pipeline is connected"}
             </p>
           </div>
         </div>
       </div>
 
       <div className="mx-auto w-full max-w-5xl flex-1 space-y-8 px-4 py-6 md:px-8">
+        <div className="max-w-3xl">
+          <DataEnvironmentBanner
+            cloudDataDisabled={cloudDataDisabled}
+            error={programError ?? homeLoadError}
+          />
+        </div>
+
         <section className="rounded-2xl bg-zinc-50/90 p-3 ring-1 ring-zinc-100">
           <div className="mb-3 flex items-center justify-between px-1">
             <h2 className="text-base font-bold text-jkl-ink">Upcoming Activities</h2>
@@ -180,57 +202,77 @@ export function HomePage() {
               See all
             </Link>
           </div>
-          <HorizontalDragScroller
-            ariaLabel="Upcoming activities"
-            slideClassName={HOME_CARD_SLIDE}
-          >
-            {activities.map((a) => (
-              <article key={a.id} className={homeCardShell}>
-                <div
-                  className={cn(
-                    "flex h-28 shrink-0 items-end justify-center bg-gradient-to-br px-4 pb-3",
-                    a.tone,
-                  )}
-                >
-                  <div className="h-16 w-full rounded-lg bg-white/40" />
-                </div>
-                <div className="relative flex min-h-0 flex-1 flex-col justify-between p-4">
-                  <div className="min-w-0 pr-14">
-                    <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
-                      {a.title}
-                    </p>
-                    <p className="mt-1 line-clamp-1 text-sm text-zinc-500">{a.place}</p>
+          {activitiesPreview.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-zinc-500">
+              {cloudDataDisabled
+                ? "Connect to Cognito to load activities from the cloud."
+                : "No upcoming activities in the next loaded window. Add one from Class Activities."}
+            </p>
+          ) : (
+            <HorizontalDragScroller
+              ariaLabel="Upcoming activities"
+              slideClassName={HOME_CARD_SLIDE}
+            >
+              {activitiesPreview.map((a, i) => (
+                <article key={a.id} className={homeCardShell}>
+                  <ActivityCoverImage
+                    coverImageUrl={a.coverImageUrl}
+                    coverImageKey={a.coverImageKey}
+                    gradientClassName={TONES[i % TONES.length] ?? TONES[0]}
+                  />
+                  <div className="relative flex min-h-0 flex-1 flex-col justify-between p-4">
+                    <div className="min-w-0 pr-14">
+                      <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
+                        {a.title}
+                      </p>
+                      <p className="mt-1 line-clamp-1 text-sm text-zinc-500">
+                        {a.location ?? "Location TBD"}
+                      </p>
+                    </div>
+                    <span className="absolute bottom-4 right-4 inline-flex max-w-[calc(100%-2rem)] truncate rounded-full bg-jkl-accent-red px-2.5 py-1 text-xs font-semibold text-white">
+                      {formatMediumDate(a.startsAt)}
+                    </span>
                   </div>
-                  <span className="absolute bottom-4 right-4 inline-flex max-w-[calc(100%-2rem)] truncate rounded-full bg-jkl-accent-red px-2.5 py-1 text-xs font-semibold text-white">
-                    {a.date}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </HorizontalDragScroller>
+                </article>
+              ))}
+            </HorizontalDragScroller>
+          )}
         </section>
 
         <section className="rounded-2xl bg-zinc-50/90 p-3 ring-1 ring-zinc-100">
           <div className="mb-3 flex items-center justify-between px-1">
             <h2 className="text-base font-bold text-jkl-ink">JKL Resource Library</h2>
-            <span className="text-sm font-semibold text-zinc-400">See all</span>
+            <span className="text-sm font-semibold text-zinc-400">
+              {resourceLibraryItems.length} links
+            </span>
           </div>
           <HorizontalDragScroller
             ariaLabel="JKL resource library"
             slideClassName={HOME_CARD_SLIDE}
           >
-            {resources.map((r) => (
-              <article key={r.id} className={homeCardShell}>
+            {resourceLibraryItems.map((r) => (
+              <a
+                key={r.id}
+                href={r.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(homeCardShell, "text-left no-underline")}
+              >
                 <div className={cn("h-28 shrink-0", r.color)} />
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-4 text-center">
                   <div className="min-w-0 w-full">
                     <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
                       {r.title}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-sm text-zinc-500">{r.subtitle}</p>
+                    <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+                      {r.subtitle}
+                    </p>
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-jkl-navy">
+                      {r.kind === "video" ? "Video" : "Article"} · open
+                    </p>
                   </div>
                 </div>
-              </article>
+              </a>
             ))}
           </HorizontalDragScroller>
         </section>

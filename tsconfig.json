@@ -23,5 +23,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "vite.config.ts", "amplify_outputs.json"]
+  "include": ["src", "amplify", "vite.config.ts", "amplify_outputs.json"]
 }

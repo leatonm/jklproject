@@ -1,4 +1,4 @@
-import { Calendar, Home, List, Plus, Search } from "lucide-react";
+import { Calendar, Home, LayoutList, PieChart, Plus } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/cn";
 
@@ -31,30 +31,42 @@ export function BottomNav() {
           )}
         </NavLink>
         <NavLink
-          to="/search"
+          to="/roster"
           className={({ isActive }) =>
             cn(linkClass, isActive && "text-jkl-navy")
           }
         >
           {({ isActive }) => (
             <>
-              <Search
+              <LayoutList
                 className={cn("h-6 w-6", isActive && "text-jkl-navy")}
                 strokeWidth={isActive ? 2.5 : 2}
                 aria-hidden
               />
-              <span>Search</span>
+              <span>Roster</span>
             </>
           )}
         </NavLink>
         <NavLink
           to="/quick-add"
-          className="-mt-6 flex flex-col items-center"
-          aria-label="Add"
+          className={({ isActive }) =>
+            cn(
+              "-mt-6 flex flex-col items-center",
+              isActive && "text-jkl-navy",
+            )
+          }
+          aria-label="Quick add"
         >
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-jkl-accent-red text-white shadow-lg shadow-jkl-accent-red/30">
-            <Plus className="h-8 w-8" strokeWidth={2.5} aria-hidden />
-          </span>
+          {({ isActive }) => (
+            <span
+              className={cn(
+                "flex h-14 w-14 items-center justify-center rounded-full bg-jkl-accent-red text-white shadow-lg shadow-jkl-accent-red/30",
+                isActive && "ring-2 ring-jkl-navy ring-offset-2 ring-offset-white",
+              )}
+            >
+              <Plus className="h-8 w-8" strokeWidth={2.5} aria-hidden />
+            </span>
+          )}
         </NavLink>
         <NavLink
           to="/activities"
@@ -69,24 +81,25 @@ export function BottomNav() {
                 strokeWidth={isActive ? 2.5 : 2}
                 aria-hidden
               />
-              <span>Calendar</span>
+              <span>Activities</span>
             </>
           )}
         </NavLink>
         <NavLink
-          to="/roster"
+          to="/reports"
+          aria-label="Highlights and reports"
           className={({ isActive }) =>
             cn(linkClass, isActive && "text-jkl-navy")
           }
         >
           {({ isActive }) => (
             <>
-              <List
+              <PieChart
                 className={cn("h-6 w-6", isActive && "text-jkl-navy")}
                 strokeWidth={isActive ? 2.5 : 2}
                 aria-hidden
               />
-              <span>Roster</span>
+              <span>Reports</span>
             </>
           )}
         </NavLink>
