@@ -7,6 +7,7 @@ import { AppModal } from "@/components/ui/AppModal";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import {
   createHighlightRecord,
+  hasRuntimeHighlightClient,
   listActivitiesForProgram,
   listHighlightsForProgram,
   listStudentsForProgram,
@@ -14,7 +15,6 @@ import {
   type HighlightRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
-import { hasAmplifyModel } from "@/lib/amplifyModelMeta";
 import { cn } from "@/lib/cn";
 
 type ReportSnapshot = {
@@ -61,7 +61,7 @@ export function ReportsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const backendHint = missingBackendModelsMessage();
-  const highlightsApiReady = hasAmplifyModel("Highlight");
+  const highlightsApiReady = hasRuntimeHighlightClient();
 
   const loadFirst = useCallback(async () => {
     if (!programId || cloudDataDisabled) {

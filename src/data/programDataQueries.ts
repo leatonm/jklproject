@@ -1,6 +1,6 @@
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import { amplifyDataClient } from "@/lib/amplifyDataClient";
-import { hasAmplifyModel, studentHasField } from "@/lib/amplifyModelMeta";
+import { studentHasField } from "@/lib/amplifyModelMeta";
 
 export type StudentRow = {
   id: string;
@@ -104,13 +104,23 @@ export async function createStudentRecord(input: {
   return amplifyDataClient.models.Student.create(payload as never);
 }
 
+/**
+ * Resolve the ClassActivity client at runtime. Do **not** gate on
+ * `amplify_outputs.json` introspection — that file is often stale after a deploy,
+ * which would hide all activities even when the API has data.
+ */
 function classActivityApi():
   | Record<string, unknown>
   | undefined {
-  if (!hasAmplifyModel("ClassActivity")) return undefined;
   const m = (amplifyDataClient.models as unknown as Record<string, unknown>)
     .ClassActivity;
   return m && typeof m === "object" ? (m as Record<string, unknown>) : undefined;
+}
+
+/** True if the generated client exposes list/create for ClassActivity. */
+export function hasRuntimeClassActivityClient(): boolean {
+  const m = classActivityApi();
+  return Boolean(m && typeof m.list === "function");
 }
 
 export async function listActivitiesForProgram(
@@ -177,10 +187,14 @@ export async function createActivityRecord(
 }
 
 function highlightApi(): Record<string, unknown> | undefined {
-  if (!hasAmplifyModel("Highlight")) return undefined;
   const m = (amplifyDataClient.models as unknown as Record<string, unknown>)
     .Highlight;
   return m && typeof m === "object" ? (m as Record<string, unknown>) : undefined;
+}
+
+export function hasRuntimeHighlightClient(): boolean {
+  const m = highlightApi();
+  return Boolean(m && typeof m.list === "function");
 }
 
 export async function listHighlightsForProgram(
@@ -230,12 +244,12 @@ export async function createHighlightRecord(
 
 export function missingBackendModelsMessage(): string | null {
   const missing: string[] = [];
-  if (!hasAmplifyModel("ClassActivity")) {
-    missing.push("ClassActivity (activities + home carousel)");
+  if (!hasRuntimeClassActivityClient()) {
+    missing.push("ClassActivity (redeploy backend, then refresh amplify_outputs.json)");
   }
-  if (!hasAmplifyModel("Highlight")) {
-    missing.push("Highlight (reports)");
+  if (!hasRuntimeHighlightClient()) {
+    missing.push("Highlight");
   }
   if (missing.length === 0) return null;
-  return `Your deployed API does not include yet: ${missing.join("; ")}. Push the latest \`amplify/\` backend from this repo and redeploy (Amplify Hosting build or \`npm run sandbox:once\`), then download a fresh \`amplify_outputs.json\`.`;
+  return `The app client has no API for: ${missing.join("; ")}. Deploy the latest \`amplify/\` backend and run \`npx ampx generate outputs\` (or download outputs from Amplify) so \`amplify_outputs.json\` matches production.`;
 }

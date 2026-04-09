@@ -8,6 +8,7 @@ import { AppModal } from "@/components/ui/AppModal";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import {
   createActivityRecord,
+  hasRuntimeClassActivityClient,
   listActivitiesForProgram,
   missingBackendModelsMessage,
   type ActivityRow,
@@ -15,7 +16,6 @@ import {
 import { useProgram } from "@/data/ProgramContext";
 import {
   classActivityHasField,
-  hasAmplifyModel,
   hasStorageInOutputs,
 } from "@/lib/amplifyModelMeta";
 import {
@@ -105,7 +105,7 @@ export function ActivitiesPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const backendHint = missingBackendModelsMessage();
-  const activitiesApiReady = hasAmplifyModel("ClassActivity");
+  const activitiesApiReady = hasRuntimeClassActivityClient();
 
   const year = cursor.getFullYear();
   const monthIndex = cursor.getMonth();

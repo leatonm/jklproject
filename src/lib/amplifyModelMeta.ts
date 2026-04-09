@@ -22,9 +22,20 @@ export function studentHasField(name: string): boolean {
   return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, name));
 }
 
+/** When `ClassActivity` is missing from downloaded outputs (stale file), allow known optional fields. */
 export function classActivityHasField(name: string): boolean {
   const fields = models().ClassActivity?.fields;
-  return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, name));
+  if (!fields) {
+    return [
+      "coverImageUrl",
+      "coverImageKey",
+      "location",
+      "description",
+      "notes",
+      "endsAt",
+    ].includes(name);
+  }
+  return Object.prototype.hasOwnProperty.call(fields, name);
 }
 
 /** True when `amplify_outputs.json` includes file storage (after storage resource is deployed). */
