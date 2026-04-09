@@ -12,6 +12,7 @@ const secondary = [
   { label: "Log attendance", to: "/" },
   { label: "New class activity", to: "/activities?add=1" },
   { label: "Add highlight", to: "/reports?add=1" },
+  { label: "Add resource link", to: "/resources?add=1" },
 ];
 
 export function QuickAddPage() {

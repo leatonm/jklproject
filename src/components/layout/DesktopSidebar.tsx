@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Calendar,
   Home,
   LayoutList,
@@ -60,6 +61,13 @@ export function DesktopSidebar() {
         >
           <Calendar className="h-5 w-5 shrink-0" aria-hidden />
           Class activities
+        </NavLink>
+        <NavLink
+          to="/resources"
+          className={({ isActive }) => cn(item, isActive && "bg-white text-jkl-navy shadow-sm")}
+        >
+          <BookOpen className="h-5 w-5 shrink-0" aria-hidden />
+          Resource library
         </NavLink>
         <NavLink
           to="/reports"

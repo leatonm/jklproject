@@ -9,6 +9,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { QuickAddPage } from "@/pages/QuickAddPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { ResourceLibraryPage } from "@/pages/ResourceLibraryPage";
 import { RosterPage } from "@/pages/RosterPage";
 import { SearchPage } from "@/pages/SearchPage";
 
@@ -26,6 +27,7 @@ export function App() {
           <Route path="roster" element={<RosterPage />} />
           <Route path="activities" element={<ActivitiesPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="resources" element={<ResourceLibraryPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="quick-add" element={<QuickAddPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

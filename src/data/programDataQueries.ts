@@ -32,6 +32,17 @@ export type HighlightRow = {
   kind?: string | null;
 };
 
+export type ResourceLibraryRow = {
+  id: string;
+  programId: string;
+  title: string;
+  url: string;
+  subtitle?: string | null;
+  kind?: string | null;
+  color?: string | null;
+  orderIndex?: number | null;
+};
+
 type ListErrors = { message: string }[];
 
 type ListOutcome<T> = {
@@ -240,6 +251,85 @@ export async function createHighlightRecord(
     if (v !== undefined && v !== "") payload[k] = v;
   }
   return (api.create as (p: Record<string, string>) => Promise<unknown>)(payload);
+}
+
+function resourceLibraryLinkApi(): Record<string, unknown> | undefined {
+  const m = (amplifyDataClient.models as unknown as Record<string, unknown>)
+    .ResourceLibraryLink;
+  return m && typeof m === "object" ? (m as Record<string, unknown>) : undefined;
+}
+
+export function hasRuntimeResourceLibraryLinkClient(): boolean {
+  const m = resourceLibraryLinkApi();
+  return Boolean(m && typeof m.list === "function");
+}
+
+/** Shown on Resource Library page when the generated client has no model (pre-deploy / stale outputs). */
+export function resourceLibraryLinkDeployHint(): string | null {
+  if (hasRuntimeResourceLibraryLinkClient()) return null;
+  return "Deploy the latest `amplify/` backend and refresh `amplify_outputs.json` so Resource Library links sync to the cloud.";
+}
+
+export async function listResourceLibraryLinksForProgram(
+  programId: string,
+  options: { limit?: number; nextToken?: string } = {},
+): Promise<ListOutcome<ResourceLibraryRow>> {
+  const model = resourceLibraryLinkApi();
+  if (!model || typeof model.list !== "function") {
+    return { data: [], nextToken: undefined };
+  }
+  const limit = options.limit ?? DATA_PAGE_SIZE;
+
+  const res = await (
+    model.list as (args: {
+      filter?: Record<string, unknown>;
+      limit?: number;
+      nextToken?: string;
+    }) => Promise<ListOutcome<ResourceLibraryRow> & { data?: ResourceLibraryRow[] }>
+  )({
+    filter: { programId: { eq: programId } },
+    limit,
+    nextToken: options.nextToken,
+  });
+  const data = [...((res.data ?? []) as ResourceLibraryRow[])].sort((x, y) => {
+    const ox = x.orderIndex ?? 0;
+    const oy = y.orderIndex ?? 0;
+    if (ox !== oy) return ox - oy;
+    return (x.title ?? "").localeCompare(y.title ?? "");
+  });
+  return { data, nextToken: res.nextToken ?? undefined, errors: res.errors };
+}
+
+export async function createResourceLibraryLinkRecord(input: {
+  programId: string;
+  title: string;
+  url: string;
+  subtitle?: string;
+  kind?: string;
+  color?: string;
+  orderIndex?: number;
+}) {
+  const api = resourceLibraryLinkApi();
+  if (!api || typeof api.create !== "function") {
+    return {
+      data: undefined,
+      errors: [{ message: "ResourceLibraryLink model is not deployed." }],
+    };
+  }
+  const payload: Record<string, string | number> = {
+    programId: input.programId,
+    title: input.title.trim(),
+    url: input.url.trim(),
+  };
+  if (input.subtitle?.trim()) payload.subtitle = input.subtitle.trim();
+  if (input.kind?.trim()) payload.kind = input.kind.trim();
+  if (input.color?.trim()) payload.color = input.color.trim();
+  if (input.orderIndex !== undefined && Number.isFinite(input.orderIndex)) {
+    payload.orderIndex = input.orderIndex;
+  }
+  return (api.create as (p: Record<string, string | number>) => Promise<unknown>)(
+    payload,
+  );
 }
 
 export function missingBackendModelsMessage(): string | null {

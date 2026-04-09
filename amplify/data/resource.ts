@@ -16,6 +16,7 @@ const schema = a.schema({
       students: a.hasMany("Student", "programId"),
       classActivities: a.hasMany("ClassActivity", "programId"),
       highlights: a.hasMany("Highlight", "programId"),
+      resourceLibraryLinks: a.hasMany("ResourceLibraryLink", "programId"),
     })
     .authorization((allow) => [allow.owner()]),
 
@@ -66,6 +67,26 @@ const schema = a.schema({
       kind: a.string(),
     })
     .secondaryIndexes((index) => [index("programId")])
+    .authorization((allow) => [allow.owner()]),
+
+  /** Curated external links for the home Resource Library carousel (per program). */
+  ResourceLibraryLink: a
+    .model({
+      programId: a.id().required(),
+      program: a.belongsTo("Program", "programId"),
+      title: a.string().required(),
+      subtitle: a.string(),
+      url: a.string().required(),
+      /** "article" | "video" — string for simple filtering/display. */
+      kind: a.string(),
+      /** Tailwind bg class for card stripe, e.g. bg-violet-200 */
+      color: a.string(),
+      /** Sort order within the program (lower first). */
+      orderIndex: a.integer(),
+    })
+    .secondaryIndexes((index) => [
+      index("programId").sortKeys(["orderIndex"]),
+    ])
     .authorization((allow) => [allow.owner()]),
 });
 

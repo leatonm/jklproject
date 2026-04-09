@@ -7,8 +7,10 @@ import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { HorizontalDragScroller } from "@/components/HorizontalDragScroller";
 import { LogoMark } from "@/components/LogoMark";
 import { DATA_PAGE_SIZE } from "@/data/constants";
-import { resourceLibraryItems } from "@/data/resourceLibrary";
+import { resourceLibraryItems, type ResourceLibraryItem } from "@/data/resourceLibrary";
 import {
+  hasRuntimeResourceLibraryLinkClient,
+  listResourceLibraryLinksForProgram,
   listStudentsForProgram,
   listUpcomingActivitiesForProgram,
 } from "@/data/programDataQueries";
@@ -59,22 +61,32 @@ export function HomePage() {
   const [metric, setMetric] = useState<MetricMode>("students");
   const [studentCount, setStudentCount] = useState<string>("—");
   const [activitiesPreview, setActivitiesPreview] = useState<ActivityPreview[]>([]);
+  const [resourceItems, setResourceItems] = useState<ResourceLibraryItem[]>(
+    resourceLibraryItems,
+  );
   const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
 
   const loadHome = useCallback(async () => {
     if (!programId || cloudDataDisabled) {
       setStudentCount("—");
       setActivitiesPreview([]);
+      setResourceItems(resourceLibraryItems);
       setHomeLoadError(null);
       return;
     }
     setHomeLoadError(null);
     try {
-      const [stu, act] = await Promise.all([
+      const [stu, act, lib] = await Promise.all([
         listStudentsForProgram(programId, { limit: DATA_PAGE_SIZE }),
         listUpcomingActivitiesForProgram(programId, 12),
+        hasRuntimeResourceLibraryLinkClient()
+          ? listResourceLibraryLinksForProgram(programId, { limit: 48 })
+          : Promise.resolve({ data: [], errors: undefined }),
       ]);
-      const err = stu.errors?.[0]?.message ?? act.errors?.[0]?.message;
+      const err =
+        stu.errors?.[0]?.message ??
+        act.errors?.[0]?.message ??
+        lib.errors?.[0]?.message;
       if (err) {
         setHomeLoadError(err);
         return;
@@ -91,6 +103,26 @@ export function HomePage() {
         coverImageKey: row.coverImageKey,
       }));
       setActivitiesPreview(upcoming);
+
+      if (hasRuntimeResourceLibraryLinkClient()) {
+        const rows = lib.data ?? [];
+        if (rows.length > 0) {
+          setResourceItems(
+            rows.map((r) => ({
+              id: r.id,
+              title: r.title,
+              subtitle: r.subtitle?.trim() || "",
+              url: r.url,
+              kind: r.kind === "video" ? "video" : "article",
+              color: r.color ?? "bg-zinc-200",
+            })),
+          );
+        } else {
+          setResourceItems([]);
+        }
+      } else {
+        setResourceItems(resourceLibraryItems);
+      }
     } catch (e) {
       setHomeLoadError(e instanceof Error ? e.message : "Failed to load home data.");
     }
@@ -229,39 +261,58 @@ export function HomePage() {
         <section className="rounded-2xl bg-zinc-50/90 p-3 ring-1 ring-zinc-100">
           <div className="mb-3 flex items-center justify-between px-1">
             <h2 className="text-base font-bold text-jkl-ink">JKL Resource Library</h2>
-            <span className="text-sm font-semibold text-zinc-400">
-              {resourceLibraryItems.length} links
-            </span>
-          </div>
-          <HorizontalDragScroller
-            ariaLabel="JKL resource library"
-            slideClassName={HOME_CARD_SLIDE}
-          >
-            {resourceLibraryItems.map((r) => (
-              <a
-                key={r.id}
-                href={r.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(homeCardShell, "text-left no-underline")}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-zinc-400">
+                {resourceItems.length} links
+              </span>
+              <Link
+                to="/resources"
+                className="text-sm font-semibold text-jkl-navy hover:underline"
               >
-                <div className={cn("h-28 shrink-0", r.color)} />
-                <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-4 text-center">
-                  <div className="min-w-0 w-full">
-                    <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
-                      {r.title}
-                    </p>
-                    <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
-                      {r.subtitle}
-                    </p>
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-jkl-navy">
-                      {r.kind === "video" ? "Video" : "Article"} · open
-                    </p>
+                Manage
+              </Link>
+            </div>
+          </div>
+          {resourceItems.length === 0 && hasRuntimeResourceLibraryLinkClient() ? (
+            <p className="px-4 py-10 text-center text-sm text-zinc-500">
+              No resource links for this program yet. Add some from{" "}
+              <Link to="/resources" className="font-semibold text-jkl-navy hover:underline">
+                Resource library
+              </Link>
+              .
+            </p>
+          ) : null}
+          {resourceItems.length > 0 ? (
+            <HorizontalDragScroller
+              ariaLabel="JKL resource library"
+              slideClassName={HOME_CARD_SLIDE}
+            >
+              {resourceItems.map((r) => (
+                <a
+                  key={r.id}
+                  href={r.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(homeCardShell, "text-left no-underline")}
+                >
+                  <div className={cn("h-28 shrink-0", r.color)} />
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-4 text-center">
+                    <div className="min-w-0 w-full">
+                      <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
+                        {r.title}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
+                        {r.subtitle}
+                      </p>
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-jkl-navy">
+                        {r.kind === "video" ? "Video" : "Article"} · open
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </a>
-            ))}
-          </HorizontalDragScroller>
+                </a>
+              ))}
+            </HorizontalDragScroller>
+          ) : null}
         </section>
       </div>
     </div>

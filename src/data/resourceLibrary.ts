@@ -1,6 +1,6 @@
 /**
- * Curated JKL Resource Library links (articles, videos). Replace or load from CMS later.
- * Each item opens in a new tab.
+ * Demo fallback when `ResourceLibraryLink` is not in the deployed API yet or cloud data
+ * is disabled. Home uses per-program rows from DynamoDB when available.
  */
 export type ResourceLibraryItem = {
   id: string;
