@@ -269,7 +269,7 @@ export function ResourceLibraryPage() {
                 linkUrl={r.url}
                 thumbnailUrl={r.thumbnailUrl}
                 thumbnailKey={r.thumbnailKey}
-                preferYoutubePoster
+                kind={r.kind === "video" ? "video" : "article"}
                 showVideoBadge={r.kind === "video"}
                 gradientClassName={
                   ROW_FALLBACK_TONES[i % ROW_FALLBACK_TONES.length] ??

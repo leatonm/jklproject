@@ -3,14 +3,15 @@ import { useEffect, useState } from "react";
 import { getUrl } from "aws-amplify/storage";
 import { cn } from "@/lib/cn";
 import { hasStorageInOutputs } from "@/lib/amplifyModelMeta";
-import { inferYoutubeThumbnailUrl } from "@/lib/inferYoutubeThumbnail";
+import { fetchOEmbedThumbnailUrl } from "@/lib/fetchOEmbedThumbnail";
+import { inferYoutubeThumbnailUrl, normalizeHttpUrl } from "@/lib/inferYoutubeThumbnail";
 
 type ResourceLibraryThumbnailProps = {
   linkUrl: string;
   thumbnailUrl?: string | null;
   thumbnailKey?: string | null;
-  /** When no stored thumbnail, try YouTube poster from `linkUrl`. */
-  preferYoutubePoster?: boolean;
+  /** When `video` and no custom thumbnail, resolve YouTube CDN / oEmbed poster from `linkUrl`. */
+  kind?: "article" | "video";
   gradientClassName: string;
   className?: string;
   /** `card` = home carousel (h-28); `row` = manage list strip. */
@@ -23,7 +24,7 @@ export function ResourceLibraryThumbnail({
   linkUrl,
   thumbnailUrl,
   thumbnailKey,
-  preferYoutubePoster = true,
+  kind = "article",
   gradientClassName,
   className,
   variant = "card",
@@ -32,33 +33,47 @@ export function ResourceLibraryThumbnail({
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
-    const direct = thumbnailUrl?.trim();
-    if (direct) {
-      setSrc(direct);
-      return;
-    }
-
-    const ytFallback = preferYoutubePoster
-      ? inferYoutubeThumbnailUrl(linkUrl)
-      : null;
-
-    if (!thumbnailKey?.trim() || !hasStorageInOutputs()) {
-      setSrc(ytFallback);
-      return;
-    }
-
     let cancelled = false;
-    void getUrl({ path: thumbnailKey.trim() })
-      .then((out) => {
-        if (!cancelled) setSrc(out.url.toString());
-      })
-      .catch(() => {
-        if (!cancelled) setSrc(ytFallback);
-      });
+
+    async function resolve() {
+      const direct = thumbnailUrl?.trim();
+      if (direct) {
+        if (!cancelled) setSrc(direct);
+        return;
+      }
+
+      if (thumbnailKey?.trim() && hasStorageInOutputs()) {
+        try {
+          const out = await getUrl({ path: thumbnailKey.trim() });
+          if (cancelled) return;
+          setSrc(out.url.toString());
+          return;
+        } catch {
+          /* fall through for video poster fallbacks */
+        }
+      }
+
+      if (kind !== "video") {
+        if (!cancelled) setSrc(null);
+        return;
+      }
+
+      const normalized = normalizeHttpUrl(linkUrl);
+      const yt = inferYoutubeThumbnailUrl(normalized);
+      if (yt) {
+        if (!cancelled) setSrc(yt);
+        return;
+      }
+
+      const remote = await fetchOEmbedThumbnailUrl(normalized);
+      if (!cancelled) setSrc(remote);
+    }
+
+    void resolve();
     return () => {
       cancelled = true;
     };
-  }, [thumbnailUrl, thumbnailKey, linkUrl, preferYoutubePoster]);
+  }, [thumbnailUrl, thumbnailKey, linkUrl, kind]);
 
   const isRow = variant === "row";
 

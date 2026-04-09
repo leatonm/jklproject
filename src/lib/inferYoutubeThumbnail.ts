@@ -1,9 +1,19 @@
+/** Ensures `https://` so `new URL()` and host checks work for pasted links. */
+export function normalizeHttpUrl(raw: string): string {
+  const t = raw.trim();
+  if (!t) return t;
+  if (/^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
+}
+
 /**
  * Returns a YouTube CDN thumbnail URL when `urlStr` is a recognizable watch/embed/short URL.
  */
 export function inferYoutubeThumbnailUrl(urlStr: string): string | null {
+  const normalized = normalizeHttpUrl(urlStr);
+  if (!normalized) return null;
   try {
-    const u = new URL(urlStr);
+    const u = new URL(normalized);
     const host = u.hostname.replace(/^www\./, "");
     if (host === "youtu.be") {
       const id = u.pathname.replace(/^\//, "").split("/")[0]?.trim();

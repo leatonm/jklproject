@@ -302,7 +302,7 @@ export function HomePage() {
                     linkUrl={r.url}
                     thumbnailUrl={r.thumbnailUrl}
                     thumbnailKey={r.thumbnailKey}
-                    preferYoutubePoster
+                    kind={r.kind}
                     showVideoBadge={r.kind === "video"}
                     gradientClassName={TONES[i % TONES.length] ?? TONES[0]}
                   />
