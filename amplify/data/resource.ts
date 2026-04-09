@@ -81,6 +81,10 @@ const schema = a.schema({
       kind: a.string(),
       /** Tailwind bg class for card stripe, e.g. bg-violet-200 */
       color: a.string(),
+      /** HTTPS image for card thumbnail (article or video poster). */
+      thumbnailUrl: a.string(),
+      /** S3 object key for uploaded thumbnail (see `amplify/storage/resource.ts`). */
+      thumbnailKey: a.string(),
       /** Sort order within the program (lower first). */
       orderIndex: a.integer(),
     })

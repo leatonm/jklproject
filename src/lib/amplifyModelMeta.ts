@@ -42,3 +42,14 @@ export function classActivityHasField(name: string): boolean {
 export function hasStorageInOutputs(): boolean {
   return Object.prototype.hasOwnProperty.call(outputs, "storage");
 }
+
+/** Optional fields on ResourceLibraryLink when introspection is stale. */
+export function resourceLibraryLinkHasField(name: string): boolean {
+  const fields = models().ResourceLibraryLink?.fields;
+  if (!fields) {
+    return ["thumbnailUrl", "thumbnailKey", "subtitle", "kind", "color", "orderIndex"].includes(
+      name,
+    );
+  }
+  return Object.prototype.hasOwnProperty.call(fields, name);
+}

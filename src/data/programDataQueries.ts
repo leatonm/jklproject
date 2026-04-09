@@ -40,6 +40,8 @@ export type ResourceLibraryRow = {
   subtitle?: string | null;
   kind?: string | null;
   color?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailKey?: string | null;
   orderIndex?: number | null;
 };
 
@@ -307,6 +309,8 @@ export async function createResourceLibraryLinkRecord(input: {
   subtitle?: string;
   kind?: string;
   color?: string;
+  thumbnailUrl?: string;
+  thumbnailKey?: string;
   orderIndex?: number;
 }) {
   const api = resourceLibraryLinkApi();
@@ -324,6 +328,8 @@ export async function createResourceLibraryLinkRecord(input: {
   if (input.subtitle?.trim()) payload.subtitle = input.subtitle.trim();
   if (input.kind?.trim()) payload.kind = input.kind.trim();
   if (input.color?.trim()) payload.color = input.color.trim();
+  if (input.thumbnailUrl?.trim()) payload.thumbnailUrl = input.thumbnailUrl.trim();
+  if (input.thumbnailKey?.trim()) payload.thumbnailKey = input.thumbnailKey.trim();
   if (input.orderIndex !== undefined && Number.isFinite(input.orderIndex)) {
     payload.orderIndex = input.orderIndex;
   }

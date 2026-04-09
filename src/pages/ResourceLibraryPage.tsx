@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { ResourceLibraryThumbnail } from "@/components/ResourceLibraryThumbnail";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -12,6 +13,8 @@ import {
   type ResourceLibraryRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
+import { hasStorageInOutputs, resourceLibraryLinkHasField } from "@/lib/amplifyModelMeta";
+import { uploadResourceThumbnailFile } from "@/lib/uploadResourceThumbnail";
 import { cn } from "@/lib/cn";
 
 const KIND_OPTIONS = [
@@ -29,6 +32,15 @@ const COLOR_PRESETS = [
   "bg-cyan-200",
   "bg-indigo-200",
 ];
+
+const ROW_FALLBACK_TONES = [
+  "from-violet-100 to-violet-50",
+  "from-sky-100 to-sky-50",
+  "from-amber-100 to-amber-50",
+  "from-cyan-100 to-cyan-50",
+  "from-indigo-100 to-indigo-50",
+  "from-emerald-100 to-emerald-50",
+] as const;
 
 export function ResourceLibraryPage() {
   const location = useLocation();
@@ -50,6 +62,9 @@ export function ResourceLibraryPage() {
   const [url, setUrl] = useState("");
   const [kind, setKind] = useState("article");
   const [color, setColor] = useState(COLOR_PRESETS[0]!);
+  const [thumbnailUrlInput, setThumbnailUrlInput] = useState("");
+  const [thumbFile, setThumbFile] = useState<File | null>(null);
+  const [thumbPreviewUrl, setThumbPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -94,6 +109,16 @@ export function ResourceLibraryPage() {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [loadFirst, programId, cloudDataDisabled]);
+
+  useEffect(() => {
+    if (!thumbFile) {
+      setThumbPreviewUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(thumbFile);
+    setThumbPreviewUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [thumbFile]);
 
   useEffect(() => {
     if (searchParams.get("add") !== "1") return;
@@ -142,6 +167,21 @@ export function ResourceLibraryPage() {
           -1,
         ) + 1;
 
+      let thumbnailKey: string | undefined;
+      if (
+        thumbFile &&
+        hasStorageInOutputs() &&
+        resourceLibraryLinkHasField("thumbnailKey")
+      ) {
+        thumbnailKey = await uploadResourceThumbnailFile(thumbFile);
+      }
+      const thumbUrlForCreate =
+        !thumbnailKey &&
+        thumbnailUrlInput.trim() &&
+        resourceLibraryLinkHasField("thumbnailUrl")
+          ? thumbnailUrlInput.trim()
+          : undefined;
+
       const created = (await createResourceLibraryLinkRecord({
         programId,
         title: trimmedTitle,
@@ -149,6 +189,8 @@ export function ResourceLibraryPage() {
         subtitle: subtitle.trim() || undefined,
         kind: kind || undefined,
         color: color || undefined,
+        thumbnailUrl: thumbUrlForCreate,
+        thumbnailKey,
         orderIndex: nextOrder,
       })) as { errors?: { message: string }[] };
       if (created.errors?.length) {
@@ -160,6 +202,8 @@ export function ResourceLibraryPage() {
       setUrl("");
       setKind("article");
       setColor(COLOR_PRESETS[0]!);
+      setThumbnailUrlInput("");
+      setThumbFile(null);
       closeModal();
       await loadFirst();
     } catch (err) {
@@ -216,13 +260,24 @@ export function ResourceLibraryPage() {
           </p>
         ) : null}
         <ul className="space-y-3">
-          {rows.map((r) => (
+          {rows.map((r, i) => (
             <li
               key={r.id}
-              className="flex gap-3 overflow-hidden rounded-2xl border border-jkl-border bg-zinc-50/80 shadow-sm"
+              className="flex overflow-hidden rounded-2xl border border-jkl-border bg-zinc-50/80 shadow-sm"
             >
-              <div className={cn("w-3 shrink-0", r.color ?? "bg-zinc-300")} />
-              <div className="min-w-0 flex-1 py-4 pr-4">
+              <ResourceLibraryThumbnail
+                linkUrl={r.url}
+                thumbnailUrl={r.thumbnailUrl}
+                thumbnailKey={r.thumbnailKey}
+                preferYoutubePoster
+                showVideoBadge={r.kind === "video"}
+                gradientClassName={
+                  ROW_FALLBACK_TONES[i % ROW_FALLBACK_TONES.length] ??
+                  ROW_FALLBACK_TONES[0]
+                }
+                variant="row"
+              />
+              <div className="min-w-0 flex-1 py-4 pl-3 pr-4">
                 <p className="font-semibold text-jkl-ink">{r.title}</p>
                 {r.subtitle ? (
                   <p className="mt-1 text-sm text-zinc-600">{r.subtitle}</p>
@@ -341,7 +396,53 @@ export function ResourceLibraryPage() {
                 />
               ))}
             </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              Used when no thumbnail is set (fallback strip on some layouts).
+            </p>
           </div>
+          <div>
+            <label htmlFor="rl-thumb-url" className="text-xs font-medium text-zinc-500">
+              Thumbnail image URL (optional)
+            </label>
+            <input
+              id="rl-thumb-url"
+              type="url"
+              value={thumbnailUrlInput}
+              onChange={(e) => setThumbnailUrlInput(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+              placeholder="https://…"
+              disabled={Boolean(thumbFile)}
+              autoComplete="off"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              For videos, a YouTube link in the URL field can show its poster image automatically
+              when you do not set a thumbnail.
+            </p>
+          </div>
+          {hasStorageInOutputs() && resourceLibraryLinkHasField("thumbnailKey") ? (
+            <div>
+              <label htmlFor="rl-thumb-file" className="text-xs font-medium text-zinc-500">
+                Or upload thumbnail image
+              </label>
+              <input
+                id="rl-thumb-file"
+                type="file"
+                accept="image/*"
+                className="mt-1 w-full text-sm file:mr-3 file:rounded-lg file:border file:border-jkl-border file:bg-white file:px-3 file:py-1.5"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  setThumbFile(f ?? null);
+                }}
+              />
+              {thumbPreviewUrl ? (
+                <img
+                  src={thumbPreviewUrl}
+                  alt=""
+                  className="mt-2 h-24 w-full max-w-xs rounded-lg border border-jkl-border object-cover"
+                />
+              ) : null}
+            </div>
+          ) : null}
         </form>
       </AppModal>
     </div>

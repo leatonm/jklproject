@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { ActivityCoverImage } from "@/components/ActivityCoverImage";
+import { ResourceLibraryThumbnail } from "@/components/ResourceLibraryThumbnail";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { HorizontalDragScroller } from "@/components/HorizontalDragScroller";
 import { LogoMark } from "@/components/LogoMark";
@@ -115,6 +116,8 @@ export function HomePage() {
               url: r.url,
               kind: r.kind === "video" ? "video" : "article",
               color: r.color ?? "bg-zinc-200",
+              thumbnailUrl: r.thumbnailUrl ?? undefined,
+              thumbnailKey: r.thumbnailKey ?? undefined,
             })),
           );
         } else {
@@ -287,7 +290,7 @@ export function HomePage() {
               ariaLabel="JKL resource library"
               slideClassName={HOME_CARD_SLIDE}
             >
-              {resourceItems.map((r) => (
+              {resourceItems.map((r, i) => (
                 <a
                   key={r.id}
                   href={r.url}
@@ -295,7 +298,14 @@ export function HomePage() {
                   rel="noopener noreferrer"
                   className={cn(homeCardShell, "text-left no-underline")}
                 >
-                  <div className={cn("h-28 shrink-0", r.color)} />
+                  <ResourceLibraryThumbnail
+                    linkUrl={r.url}
+                    thumbnailUrl={r.thumbnailUrl}
+                    thumbnailKey={r.thumbnailKey}
+                    preferYoutubePoster
+                    showVideoBadge={r.kind === "video"}
+                    gradientClassName={TONES[i % TONES.length] ?? TONES[0]}
+                  />
                   <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-4 text-center">
                     <div className="min-w-0 w-full">
                       <p className="line-clamp-2 font-semibold leading-snug text-jkl-ink">
