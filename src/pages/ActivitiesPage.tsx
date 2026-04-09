@@ -1,6 +1,6 @@
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { ActivityCoverImage } from "@/components/ActivityCoverImage";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -70,6 +70,7 @@ const LIST_TONES = [
 ] as const;
 
 export function ActivitiesPage() {
+  const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     programId,
@@ -171,7 +172,17 @@ export function ActivitiesPage() {
 
   useEffect(() => {
     void loadFirst();
-  }, [loadFirst]);
+  }, [loadFirst, routerLocation.pathname]);
+
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible" && programId && !cloudDataDisabled) {
+        void loadFirst();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadFirst, programId, cloudDataDisabled]);
 
   useEffect(() => {
     if (searchParams.get("add") !== "1") return;
@@ -182,19 +193,15 @@ export function ActivitiesPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const forSelectedDay = useMemo(() => {
-    return activities.filter((a) => sameDay(new Date(a.startsAt), selected));
-  }, [activities, selected]);
-
+  /** Tab filters by time only. Calendar selection highlights days; it does not hide list items. */
   const filteredByTab = useMemo(() => {
     const n = Date.now();
-    const base = forSelectedDay.length ? forSelectedDay : activities;
-    return base.filter((a) => {
+    return activities.filter((a) => {
       const t = new Date(a.startsAt).getTime();
       if (tab === "upcoming") return t >= n;
       return t < n;
     });
-  }, [forSelectedDay, activities, tab]);
+  }, [activities, tab]);
 
   function revokeCoverPreview() {
     setCoverPreviewUrl((prev) => {
@@ -296,7 +303,6 @@ export function ActivitiesPage() {
     <div className="flex min-h-0 flex-1 flex-col bg-white">
       <PageHeader
         title="Class Activities"
-        showReportsLink
         action={
           <button
             type="button"
@@ -406,9 +412,10 @@ export function ActivitiesPage() {
         <div className="mt-8">
           <h2 className="text-lg font-bold text-jkl-ink">Your calendar</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Selected day: {formatMediumDate(selected.toISOString())}. Lists use
-            paged loads (
-            {DATA_PAGE_SIZE} at a time) so large programs stay responsive.
+            Selected day: {formatMediumDate(selected.toISOString())} (dots show
+            which days have activities). The list below shows all{" "}
+            {tab === "upcoming" ? "upcoming" : "past"} events for your program.
+            Paged loads: {DATA_PAGE_SIZE} at a time.
           </p>
           <div className="mt-2 flex gap-6 border-b border-jkl-border">
             <button
@@ -442,9 +449,25 @@ export function ActivitiesPage() {
           ) : null}
 
           {!listLoading && filteredByTab.length === 0 ? (
-            <p className="py-12 text-center text-2xl font-semibold text-zinc-300">
-              No activities for this view
-            </p>
+            <div className="space-y-2 py-12 text-center">
+              <p className="text-2xl font-semibold text-zinc-300">
+                No activities for this view
+              </p>
+              {activities.length > 0 ? (
+                <p className="mx-auto max-w-md text-sm text-zinc-500">
+                  You have {activities.length} saved for this program—try the{" "}
+                  {tab === "upcoming" ? "Past" : "Upcoming"} tab if the times fall
+                  there.
+                </p>
+              ) : activitiesApiReady ? (
+                <p className="mx-auto max-w-md text-sm text-zinc-500">
+                  Data must match this app&apos;s program and your login. Records
+                  created in the AWS console need the same{" "}
+                  <code className="rounded bg-zinc-100 px-1">programId</code> as
+                  your default program and your Cognito user as owner.
+                </p>
+              ) : null}
+            </div>
           ) : (
             <ul className="mt-4 space-y-3 pb-8">
               {filteredByTab.map((a, i) => (

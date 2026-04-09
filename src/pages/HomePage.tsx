@@ -1,6 +1,6 @@
-import { LogOut, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { LogOut } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { ActivityCoverImage } from "@/components/ActivityCoverImage";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
@@ -48,6 +48,7 @@ type ActivityPreview = {
 };
 
 export function HomePage() {
+  const location = useLocation();
   const { signOutUser } = useAuth();
   const {
     programId,
@@ -60,51 +61,52 @@ export function HomePage() {
   const [activitiesPreview, setActivitiesPreview] = useState<ActivityPreview[]>([]);
   const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!programId || cloudDataDisabled) {
-        setStudentCount("—");
-        setActivitiesPreview([]);
-        setHomeLoadError(null);
+  const loadHome = useCallback(async () => {
+    if (!programId || cloudDataDisabled) {
+      setStudentCount("—");
+      setActivitiesPreview([]);
+      setHomeLoadError(null);
+      return;
+    }
+    setHomeLoadError(null);
+    try {
+      const [stu, act] = await Promise.all([
+        listStudentsForProgram(programId, { limit: DATA_PAGE_SIZE }),
+        listUpcomingActivitiesForProgram(programId, 12),
+      ]);
+      const err = stu.errors?.[0]?.message ?? act.errors?.[0]?.message;
+      if (err) {
+        setHomeLoadError(err);
         return;
       }
-      setHomeLoadError(null);
-      try {
-        const [stu, act] = await Promise.all([
-          listStudentsForProgram(programId, { limit: DATA_PAGE_SIZE }),
-          listUpcomingActivitiesForProgram(programId, 12),
-        ]);
-        const err = stu.errors?.[0]?.message ?? act.errors?.[0]?.message;
-        if (err) {
-          if (!cancelled) setHomeLoadError(err);
-          return;
-        }
-        const n = stu.data?.length ?? 0;
-        const more = Boolean(stu.nextToken);
-        if (!cancelled) {
-          setStudentCount(n === 0 && !more ? "0" : `${n}${more ? "+" : ""}`);
-        }
-        const upcoming = (act.data ?? []).map((row) => ({
-          id: row.id,
-          title: row.title,
-          location: row.location,
-          startsAt: row.startsAt,
-          coverImageUrl: row.coverImageUrl,
-          coverImageKey: row.coverImageKey,
-        }));
-        if (!cancelled) setActivitiesPreview(upcoming);
-      } catch (e) {
-        if (!cancelled) {
-          setHomeLoadError(e instanceof Error ? e.message : "Failed to load home data.");
-        }
-      }
+      const n = stu.data?.length ?? 0;
+      const more = Boolean(stu.nextToken);
+      setStudentCount(n === 0 && !more ? "0" : `${n}${more ? "+" : ""}`);
+      const upcoming = (act.data ?? []).map((row) => ({
+        id: row.id,
+        title: row.title,
+        location: row.location,
+        startsAt: row.startsAt,
+        coverImageUrl: row.coverImageUrl,
+        coverImageKey: row.coverImageKey,
+      }));
+      setActivitiesPreview(upcoming);
+    } catch (e) {
+      setHomeLoadError(e instanceof Error ? e.message : "Failed to load home data.");
     }
-    void load();
-    return () => {
-      cancelled = true;
-    };
   }, [programId, cloudDataDisabled]);
+
+  useEffect(() => {
+    void loadHome();
+  }, [loadHome, location.pathname]);
+
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") void loadHome();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadHome]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white">
@@ -115,19 +117,6 @@ export function HomePage() {
             JKL App Demo Location
           </p>
           <div className="flex shrink-0 items-center gap-0.5">
-            <Link
-              to="/quick-add"
-              className="rounded-full p-2 text-white/90 hover:bg-white/10"
-              aria-label="Quick add"
-            >
-              <Plus className="h-5 w-5" />
-            </Link>
-            <Link
-              to="/reports"
-              className="hidden rounded-full px-2 py-1 text-xs font-semibold text-white/90 hover:bg-white/10 sm:inline"
-            >
-              Reports
-            </Link>
             <button
               type="button"
               className="rounded-full p-2 text-white/90 hover:bg-white/10 md:hidden"
@@ -173,13 +162,11 @@ export function HomePage() {
                   : studentCount
                 : "—"}
             </p>
-            <p className="mt-1 text-sm text-white/80">
-              {metric === "students"
-                ? cloudDataDisabled
-                  ? "Sign in with Cognito to load roster counts"
-                  : "Students on first page (tap Reports → Run report for more)"
-                : "Average attendance when the attendance pipeline is connected"}
-            </p>
+            {metric === "students" && cloudDataDisabled ? (
+              <p className="mt-1 text-sm text-white/80">
+                Sign in with Cognito to load roster counts
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -276,12 +263,6 @@ export function HomePage() {
             ))}
           </HorizontalDragScroller>
         </section>
-
-        <p className="pb-4 text-center text-sm text-zinc-500 md:hidden">
-          <Link to="/reports" className="font-semibold text-jkl-navy hover:underline">
-            Open highlights &amp; reports
-          </Link>
-        </p>
       </div>
     </div>
   );

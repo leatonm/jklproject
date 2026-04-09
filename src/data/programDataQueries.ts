@@ -123,16 +123,7 @@ export async function listActivitiesForProgram(
   }
   const limit = options.limit ?? DATA_PAGE_SIZE;
 
-  const indexed = await callIfFn<ActivityRow>(
-    model,
-    "listClassActivityByProgramIdAndStartsAt",
-    [
-      { programId },
-      { limit, nextToken: options.nextToken, sortDirection: "DESC" },
-    ],
-  );
-  if (indexed) return indexed;
-
+  /** Always use `list` + `programId` filter so rows show reliably. GSI client helpers can return empty if partition/sort args do not match the deployed API. */
   const res = await (
     model.list as (args: {
       filter?: Record<string, unknown>;
@@ -150,40 +141,22 @@ export async function listActivitiesForProgram(
   return { data, nextToken: res.nextToken ?? undefined, errors: res.errors };
 }
 
-/** Upcoming activities: prefers indexed query with `startsAt >= now` when available. */
+/**
+ * Upcoming activities for home carousel — loads a window of program activities and
+ * filters client-side so we do not rely on compound GraphQL filters (which can differ by API version).
+ */
 export async function listUpcomingActivitiesForProgram(
   programId: string,
   limit = 12,
 ): Promise<ListOutcome<ActivityRow>> {
-  const model = classActivityApi();
-  if (!model || typeof model.list !== "function") {
-    return { data: [], nextToken: undefined };
-  }
-  const nowIso = new Date().toISOString();
-
-  const indexed = await callIfFn<ActivityRow>(
-    model,
-    "listClassActivityByProgramIdAndStartsAt",
-    [{ programId, startsAt: { ge: nowIso } }, { limit, sortDirection: "ASC" }],
-  );
-  if (indexed) return indexed;
-
-  const res = await (
-    model.list as (args: {
-      filter?: Record<string, unknown>;
-      limit?: number;
-    }) => Promise<ListOutcome<ActivityRow> & { data?: ActivityRow[] }>
-  )({
-    filter: {
-      programId: { eq: programId },
-      startsAt: { ge: nowIso },
-    },
-    limit,
-  });
-  const data = [...((res.data ?? []) as ActivityRow[])].sort((x, y) =>
-    (x.startsAt ?? "").localeCompare(y.startsAt ?? ""),
-  );
-  return { data, nextToken: res.nextToken ?? undefined, errors: res.errors };
+  const res = await listActivitiesForProgram(programId, { limit: 100 });
+  if (res.errors?.length) return res;
+  const now = Date.now();
+  const data = (res.data ?? [])
+    .filter((a) => new Date(a.startsAt).getTime() >= now)
+    .sort((x, y) => (x.startsAt ?? "").localeCompare(y.startsAt ?? ""))
+    .slice(0, limit);
+  return { data, nextToken: undefined, errors: res.errors };
 }
 
 export async function createActivityRecord(
@@ -219,12 +192,6 @@ export async function listHighlightsForProgram(
     return { data: [], nextToken: undefined };
   }
   const limit = options.limit ?? DATA_PAGE_SIZE;
-
-  const indexed = await callIfFn<HighlightRow>(model, "listHighlightByProgramId", [
-    { programId },
-    { limit, nextToken: options.nextToken },
-  ]);
-  if (indexed) return indexed;
 
   const res = await (
     model.list as (args: {

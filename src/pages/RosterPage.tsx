@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AppModal } from "@/components/ui/AppModal";
@@ -16,6 +16,7 @@ import { studentHasField } from "@/lib/amplifyModelMeta";
 import { cn } from "@/lib/cn";
 
 export function RosterPage() {
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const addStudentRef = useRef<HTMLButtonElement>(null);
   const {
@@ -90,7 +91,17 @@ export function RosterPage() {
 
   useEffect(() => {
     void loadFirst();
-  }, [loadFirst]);
+  }, [loadFirst, location.pathname]);
+
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible" && programId && !cloudDataDisabled) {
+        void loadFirst();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadFirst, programId, cloudDataDisabled]);
 
   useEffect(() => {
     if (searchParams.get("add") !== "1") return;
@@ -154,7 +165,6 @@ export function RosterPage() {
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50">
       <PageHeader
         title="Student Roster"
-        showReportsLink
         action={
           <button
             ref={addStudentRef}
