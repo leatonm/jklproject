@@ -15,6 +15,16 @@ export type ResourceLibraryItem = {
 
 export const resourceLibraryItems: ResourceLibraryItem[] = [
   {
+    id: "consent-local",
+    title: "Parent consent form (print / PDF)",
+    subtitle: "In-app printable template · same as roster link",
+    url: "/consent-form",
+    kind: "article",
+    color: "bg-emerald-200",
+    thumbnailUrl:
+      "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=640&h=360&fit=crop&q=80",
+  },
+  {
     id: "1",
     title: "Mental Health Monday",
     subtitle: "Article · weekly wellness tips",

@@ -8,6 +8,11 @@ export type StudentRow = {
   programId: string;
   grade?: string | null;
   notes?: string | null;
+  parentName?: string | null;
+  parentEmail?: string | null;
+  dateOfBirth?: string | null;
+  consentDigitalSignedAt?: string | null;
+  consentUploadKey?: string | null;
   enrolledAt?: string | null;
   createdAt?: string | null;
 };
@@ -22,6 +27,16 @@ export type ActivityRow = {
   description?: string | null;
   coverImageKey?: string | null;
   coverImageUrl?: string | null;
+  canceled?: boolean | null;
+  seriesId?: string | null;
+};
+
+export type AttendanceRow = {
+  id: string;
+  programId: string;
+  classActivityId: string;
+  studentId: string;
+  status: string;
 };
 
 export type HighlightRow = {
@@ -102,19 +117,53 @@ export async function createStudentRecord(input: {
   name: string;
   grade?: string;
   notes?: string;
+  parentName?: string;
+  parentEmail?: string;
+  dateOfBirth?: string;
 }) {
   const payload: Record<string, string> = {
     programId: input.programId,
     name: input.name,
   };
-  if (studentHasField("grade") && input.grade?.trim())
-    payload.grade = input.grade.trim();
-  if (studentHasField("notes") && input.notes?.trim())
-    payload.notes = input.notes.trim();
-  if (studentHasField("enrolledAt"))
-    payload.enrolledAt = new Date().toISOString();
+  if (studentHasField("grade") && input.grade?.trim()) payload.grade = input.grade.trim();
+  if (studentHasField("notes") && input.notes?.trim()) payload.notes = input.notes.trim();
+  if (studentHasField("parentName") && input.parentName?.trim())
+    payload.parentName = input.parentName.trim();
+  if (studentHasField("parentEmail") && input.parentEmail?.trim())
+    payload.parentEmail = input.parentEmail.trim();
+  if (studentHasField("dateOfBirth") && input.dateOfBirth?.trim())
+    payload.dateOfBirth = input.dateOfBirth.trim();
+  if (studentHasField("enrolledAt")) payload.enrolledAt = new Date().toISOString();
 
   return amplifyDataClient.models.Student.create(payload as never);
+}
+
+export async function updateStudentRecord(input: {
+  id: string;
+  parentName?: string | null;
+  parentEmail?: string | null;
+  dateOfBirth?: string | null;
+  grade?: string | null;
+  notes?: string | null;
+  consentDigitalSignedAt?: string | null;
+  consentUploadKey?: string | null;
+}) {
+  const payload: Record<string, string | null> = { id: input.id };
+  if (studentHasField("parentName") && input.parentName !== undefined)
+    payload.parentName = input.parentName?.trim() || null;
+  if (studentHasField("parentEmail") && input.parentEmail !== undefined)
+    payload.parentEmail = input.parentEmail?.trim() || null;
+  if (studentHasField("dateOfBirth") && input.dateOfBirth !== undefined)
+    payload.dateOfBirth = input.dateOfBirth?.trim() || null;
+  if (studentHasField("grade") && input.grade !== undefined)
+    payload.grade = input.grade?.trim() || null;
+  if (studentHasField("notes") && input.notes !== undefined)
+    payload.notes = input.notes?.trim() || null;
+  if (studentHasField("consentDigitalSignedAt") && input.consentDigitalSignedAt !== undefined)
+    payload.consentDigitalSignedAt = input.consentDigitalSignedAt;
+  if (studentHasField("consentUploadKey") && input.consentUploadKey !== undefined)
+    payload.consentUploadKey = input.consentUploadKey;
+  return amplifyDataClient.models.Student.update(payload as never);
 }
 
 /**
@@ -183,7 +232,7 @@ export async function listUpcomingActivitiesForProgram(
 }
 
 export async function createActivityRecord(
-  input: Record<string, string | undefined>,
+  input: Record<string, string | boolean | undefined>,
 ) {
   const api = classActivityApi();
   if (!api || typeof api.create !== "function") {
@@ -192,11 +241,104 @@ export async function createActivityRecord(
       errors: [{ message: "ClassActivity model is not deployed." }],
     };
   }
-  const payload: Record<string, string> = {};
+  const payload: Record<string, string | boolean> = {};
   for (const [k, v] of Object.entries(input)) {
-    if (v !== undefined && v !== "") payload[k] = v;
+    if (v === undefined) continue;
+    if (typeof v === "string" && v === "") continue;
+    payload[k] = v;
   }
-  return (api.create as (p: Record<string, string>) => Promise<unknown>)(payload);
+  return (api.create as (p: Record<string, string | boolean>) => Promise<unknown>)(payload);
+}
+
+export async function updateClassActivityRecord(input: {
+  id: string;
+  canceled?: boolean;
+}) {
+  const api = classActivityApi();
+  if (!api || typeof api.update !== "function") {
+    return {
+      data: undefined,
+      errors: [{ message: "ClassActivity model is not deployed." }],
+    };
+  }
+  const payload: { id: string; canceled?: boolean } = { id: input.id };
+  if (typeof input.canceled === "boolean") payload.canceled = input.canceled;
+  return (api.update as (p: typeof payload) => Promise<unknown>)(payload);
+}
+
+export async function getClassActivityById(id: string) {
+  const api = classActivityApi();
+  if (!api || typeof api.get !== "function") {
+    return { data: undefined as ActivityRow | undefined, errors: undefined };
+  }
+  return (api.get as (p: { id: string }) => Promise<{ data?: ActivityRow; errors?: ListErrors }>)({
+    id,
+  });
+}
+
+function attendanceRecordApi(): Record<string, unknown> | undefined {
+  const m = (amplifyDataClient.models as unknown as Record<string, unknown>).AttendanceRecord;
+  return m && typeof m === "object" ? (m as Record<string, unknown>) : undefined;
+}
+
+export function hasRuntimeAttendanceRecordClient(): boolean {
+  const m = attendanceRecordApi();
+  return Boolean(m && typeof m.list === "function");
+}
+
+export async function listAttendanceRecordsForActivity(classActivityId: string) {
+  const api = attendanceRecordApi();
+  if (!api || typeof api.list !== "function") {
+    return { data: [] as AttendanceRow[], errors: undefined as ListErrors | undefined };
+  }
+  const res = await (
+    api.list as (args: {
+      filter?: Record<string, unknown>;
+      limit?: number;
+    }) => Promise<{ data?: AttendanceRow[]; errors?: ListErrors }>
+  )({
+    filter: { classActivityId: { eq: classActivityId } },
+    limit: 500,
+  });
+  return { data: (res.data ?? []) as AttendanceRow[], errors: res.errors };
+}
+
+export async function upsertAttendanceRecord(input: {
+  programId: string;
+  classActivityId: string;
+  studentId: string;
+  status: string;
+}) {
+  const api = attendanceRecordApi();
+  if (!api || typeof api.list !== "function" || typeof api.create !== "function") {
+    return {
+      data: undefined,
+      errors: [{ message: "AttendanceRecord model is not deployed." }],
+    };
+  }
+  const existing = await (
+    api.list as (args: {
+      filter?: Record<string, unknown>;
+      limit?: number;
+    }) => Promise<{ data?: { id: string; studentId?: string }[]; errors?: ListErrors }>
+  )({
+    filter: { classActivityId: { eq: input.classActivityId } },
+    limit: 500,
+  });
+  if (existing.errors?.length) return { data: undefined, errors: existing.errors };
+  const row = (existing.data ?? []).find((r) => r.studentId === input.studentId);
+  if (row?.id) {
+    return (api.update as (p: { id: string; status: string }) => Promise<unknown>)({
+      id: row.id,
+      status: input.status,
+    });
+  }
+  return (api.create as (p: Record<string, string>) => Promise<unknown>)({
+    programId: input.programId,
+    classActivityId: input.classActivityId,
+    studentId: input.studentId,
+    status: input.status,
+  });
 }
 
 function highlightApi(): Record<string, unknown> | undefined {

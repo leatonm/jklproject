@@ -33,6 +33,8 @@ export function classActivityHasField(name: string): boolean {
       "description",
       "notes",
       "endsAt",
+      "canceled",
+      "seriesId",
     ].includes(name);
   }
   return Object.prototype.hasOwnProperty.call(fields, name);

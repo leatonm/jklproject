@@ -236,7 +236,11 @@ export function HomePage() {
               slideClassName={HOME_CARD_SLIDE}
             >
               {activitiesPreview.map((a, i) => (
-                <article key={a.id} className={homeCardShell}>
+                <Link
+                  key={a.id}
+                  to={`/attendance/${a.id}`}
+                  className={cn(homeCardShell, "block text-left no-underline")}
+                >
                   <ActivityCoverImage
                     coverImageUrl={a.coverImageUrl}
                     coverImageKey={a.coverImageKey}
@@ -250,12 +254,15 @@ export function HomePage() {
                       <p className="mt-1 line-clamp-1 text-sm text-zinc-500">
                         {a.location ?? "Location TBD"}
                       </p>
+                      <p className="mt-2 text-xs font-semibold text-jkl-navy">
+                        Tap to take attendance →
+                      </p>
                     </div>
                     <span className="absolute bottom-4 right-4 inline-flex max-w-[calc(100%-2rem)] truncate rounded-full bg-jkl-accent-red px-2.5 py-1 text-xs font-semibold text-white">
                       {formatMediumDate(a.startsAt)}
                     </span>
                   </div>
-                </article>
+                </Link>
               ))}
             </HorizontalDragScroller>
           )}

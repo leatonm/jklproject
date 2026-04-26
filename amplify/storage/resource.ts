@@ -7,5 +7,8 @@ export const storage = defineStorage({
     "activity-covers/*": [
       allow.authenticated.to(["read", "write", "delete"]),
     ],
+    "student-consent-uploads/*": [
+      allow.authenticated.to(["read", "write", "delete"]),
+    ],
   }),
 });

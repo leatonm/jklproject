@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireAuth } from "@/auth/RequireAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { ActivitiesPage } from "@/pages/ActivitiesPage";
+import { AttendancePage } from "@/pages/AttendancePage";
+import { ConsentFormPage } from "@/pages/ConsentFormPage";
 import { ConfirmSignUpPage } from "@/pages/ConfirmSignUpPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { HomePage } from "@/pages/HomePage";
@@ -25,6 +27,8 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />
           <Route path="roster" element={<RosterPage />} />
+          <Route path="consent-form" element={<ConsentFormPage />} />
+          <Route path="attendance/:activityId" element={<AttendancePage />} />
           <Route path="activities" element={<ActivitiesPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="resources" element={<ResourceLibraryPage />} />

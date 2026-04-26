@@ -1,6 +1,6 @@
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ActivityCoverImage } from "@/components/ActivityCoverImage";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -11,19 +11,16 @@ import {
   hasRuntimeClassActivityClient,
   listActivitiesForProgram,
   missingBackendModelsMessage,
+  updateClassActivityRecord,
   type ActivityRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
-import {
-  classActivityHasField,
-  hasStorageInOutputs,
-} from "@/lib/amplifyModelMeta";
+import { classActivityHasField } from "@/lib/amplifyModelMeta";
 import {
   datetimeLocalToIso,
   formatMediumDate,
   isoToDatetimeLocalValue,
 } from "@/lib/formatMediumDate";
-import { uploadActivityCoverFile } from "@/lib/uploadActivityCover";
 import { cn } from "@/lib/cn";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -58,6 +55,56 @@ function sameDay(a: Date, b: Date) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
+}
+
+function parseYmd(s: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+/** For each selected weekday between range (inclusive), combine calendar date with wall time from `datetimeLocal`. */
+function enumerateRecurringSessionIsoStrings(
+  rangeStartYmd: string,
+  rangeEndYmd: string,
+  weekdays: boolean[],
+  datetimeLocal: string,
+): string[] {
+  const from = parseYmd(rangeStartYmd);
+  const to = parseYmd(rangeEndYmd);
+  const timeRef = new Date(datetimeLocal);
+  if (!from || !to || Number.isNaN(timeRef.getTime())) return [];
+  if (from > to) return [];
+  const h = timeRef.getHours();
+  const min = timeRef.getMinutes();
+  const out: string[] = [];
+  const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const end = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  while (cur <= end) {
+    if (weekdays[cur.getDay()]) {
+      const start = new Date(
+        cur.getFullYear(),
+        cur.getMonth(),
+        cur.getDate(),
+        h,
+        min,
+        0,
+        0,
+      );
+      out.push(start.toISOString());
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function isoDateOnly(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 const LIST_TONES = [
@@ -98,9 +145,22 @@ export function ActivitiesPage() {
   );
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
-  const [coverImageUrl, setCoverImageUrl] = useState("");
-  const [coverFile, setCoverFile] = useState<File | null>(null);
-  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [recurring, setRecurring] = useState(false);
+  const [rangeStart, setRangeStart] = useState(() => isoDateOnly(new Date()));
+  const [rangeEnd, setRangeEnd] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 4);
+    return isoDateOnly(d);
+  });
+  const [weekdays, setWeekdays] = useState<boolean[]>(() => [
+    false,
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+  ]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -203,27 +263,15 @@ export function ActivitiesPage() {
     });
   }, [activities, tab]);
 
-  function revokeCoverPreview() {
-    setCoverPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-  }
-
   function openModal() {
     setSaveError(null);
     setStartsLocal(isoToDatetimeLocalValue(new Date().toISOString()));
-    setCoverImageUrl("");
-    setCoverFile(null);
-    revokeCoverPreview();
     setModalOpen(true);
   }
 
   function closeModal() {
     setModalOpen(false);
     setSaveError(null);
-    revokeCoverPreview();
-    setCoverFile(null);
   }
 
   async function submitActivity(e: React.FormEvent) {
@@ -242,52 +290,70 @@ export function ActivitiesPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      let coverImageKey: string | undefined;
-      if (
-        coverFile &&
-        hasStorageInOutputs() &&
-        classActivityHasField("coverImageKey")
-      ) {
-        try {
-          coverImageKey = await uploadActivityCoverFile(coverFile);
-        } catch (uploadErr) {
-          setSaveError(
-            uploadErr instanceof Error
-              ? uploadErr.message
-              : "Could not upload photo. Try an image URL instead or redeploy with storage.",
-          );
+      if (recurring) {
+        if (!weekdays.some(Boolean)) {
+          setSaveError("Pick at least one weekday for recurring sessions.");
+          setSaving(false);
+          return;
+        }
+        const slots = enumerateRecurringSessionIsoStrings(
+          rangeStart,
+          rangeEnd,
+          weekdays,
+          startsLocal,
+        );
+        if (slots.length === 0) {
+          setSaveError("No sessions fall in that date range for the weekdays you picked.");
+          setSaving(false);
+          return;
+        }
+        if (slots.length > 200) {
+          setSaveError("That range would create more than 200 sessions. Narrow the dates or weekdays.");
+          setSaving(false);
+          return;
+        }
+        const seriesId =
+          classActivityHasField("seriesId") ? crypto.randomUUID() : undefined;
+        for (const startsAt of slots) {
+          const payload: Record<string, string | boolean | undefined> = {
+            programId,
+            title: trimmed,
+            startsAt,
+            location: location.trim() || undefined,
+            description: description.trim() || undefined,
+          };
+          if (seriesId && classActivityHasField("seriesId")) payload.seriesId = seriesId;
+          if (classActivityHasField("canceled")) payload.canceled = false;
+          const created = (await createActivityRecord(payload)) as {
+            errors?: { message: string }[];
+          };
+          if (created.errors?.length) {
+            setSaveError(created.errors.map((er) => er.message).join(" "));
+            setSaving(false);
+            return;
+          }
+        }
+      } else {
+        const payload: Record<string, string | boolean | undefined> = {
+          programId,
+          title: trimmed,
+          startsAt: iso,
+          location: location.trim() || undefined,
+          description: description.trim() || undefined,
+        };
+        if (classActivityHasField("canceled")) payload.canceled = false;
+        const created = (await createActivityRecord(payload)) as {
+          errors?: { message: string }[];
+        };
+        if (created.errors?.length) {
+          setSaveError(created.errors.map((er) => er.message).join(" "));
           setSaving(false);
           return;
         }
       }
-
-      const payload: Record<string, string | undefined> = {
-        programId,
-        title: trimmed,
-        startsAt: iso,
-        location: location.trim() || undefined,
-        description: description.trim() || undefined,
-      };
-      if (classActivityHasField("coverImageUrl") && coverImageUrl.trim()) {
-        payload.coverImageUrl = coverImageUrl.trim();
-      }
-      if (classActivityHasField("coverImageKey") && coverImageKey) {
-        payload.coverImageKey = coverImageKey;
-      }
-
-      const created = (await createActivityRecord(payload)) as {
-        errors?: { message: string }[];
-      };
-      if (created.errors?.length) {
-        setSaveError(created.errors.map((er) => er.message).join(" "));
-        return;
-      }
       setTitle("");
       setLocation("");
       setDescription("");
-      setCoverImageUrl("");
-      setCoverFile(null);
-      revokeCoverPreview();
       closeModal();
       await loadFirst();
     } catch (err) {
@@ -297,6 +363,19 @@ export function ActivitiesPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleCanceled(a: ActivityRow) {
+    if (!programId || cloudDataDisabled || !classActivityHasField("canceled")) return;
+    const next = !a.canceled;
+    const res = (await updateClassActivityRecord({ id: a.id, canceled: next })) as {
+      errors?: { message: string }[];
+    };
+    if (res.errors?.length) {
+      setListError(res.errors.map((e) => e.message).join(" "));
+      return;
+    }
+    await loadFirst();
   }
 
   return (
@@ -473,7 +552,10 @@ export function ActivitiesPage() {
               {filteredByTab.map((a, i) => (
                 <li
                   key={a.id}
-                  className="flex gap-3 rounded-2xl border border-jkl-border bg-zinc-50/80 p-3"
+                  className={cn(
+                    "flex gap-3 rounded-2xl border border-jkl-border bg-zinc-50/80 p-3",
+                    a.canceled && "opacity-70",
+                  )}
                 >
                   <ActivityCoverImage
                     variant="thumb"
@@ -484,7 +566,21 @@ export function ActivitiesPage() {
                     }
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-jkl-ink">{a.title}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p
+                        className={cn(
+                          "font-semibold text-jkl-ink",
+                          a.canceled && "line-through decoration-zinc-400",
+                        )}
+                      >
+                        {a.title}
+                      </p>
+                      {a.canceled ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                          Canceled
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm text-zinc-600">
                       {formatMediumDate(a.startsAt)}
                       {a.location ? ` · ${a.location}` : ""}
@@ -492,6 +588,24 @@ export function ActivitiesPage() {
                     {a.description ? (
                       <p className="mt-1 text-sm text-zinc-500">{a.description}</p>
                     ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        to={`/attendance/${a.id}`}
+                        className="rounded-lg bg-jkl-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-jkl-navy-muted"
+                      >
+                        Take attendance
+                      </Link>
+                      {classActivityHasField("canceled") ? (
+                        <button
+                          type="button"
+                          onClick={() => void toggleCanceled(a)}
+                          disabled={cloudDataDisabled}
+                          className="rounded-lg border border-jkl-border bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                        >
+                          {a.canceled ? "Mark not canceled" : "Mark canceled"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </li>
               ))}
@@ -601,60 +715,80 @@ export function ActivitiesPage() {
               className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
             />
           </div>
-          {classActivityHasField("coverImageUrl") ? (
-            <div>
-              <label
-                className="text-xs font-semibold text-zinc-500"
-                htmlFor="act-cover-url"
-              >
-                Photo link (optional)
-              </label>
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-jkl-ink">
               <input
-                id="act-cover-url"
-                type="url"
-                inputMode="url"
-                placeholder="https://…"
-                value={coverImageUrl}
-                onChange={(ev) => setCoverImageUrl(ev.target.value)}
-                className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+                type="checkbox"
+                checked={recurring}
+                onChange={(ev) => setRecurring(ev.target.checked)}
+                className="rounded border-jkl-border"
               />
-              <p className="mt-1 text-xs text-zinc-500">
-                Use a direct image URL, or upload a file below if storage is
-                deployed.
-              </p>
-            </div>
-          ) : null}
-          {classActivityHasField("coverImageKey") && hasStorageInOutputs() ? (
-            <div>
-              <label
-                className="text-xs font-semibold text-zinc-500"
-                htmlFor="act-cover-file"
-              >
-                Photo upload (optional)
-              </label>
-              <input
-                id="act-cover-file"
-                type="file"
-                accept="image/*"
-                className="mt-1 w-full text-sm file:mr-2 file:rounded-lg file:border-0 file:bg-jkl-navy file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
-                onChange={(ev) => {
-                  const f = ev.target.files?.[0] ?? null;
-                  setCoverFile(f);
-                  setCoverPreviewUrl((prev) => {
-                    if (prev) URL.revokeObjectURL(prev);
-                    return f?.type.startsWith("image/") ? URL.createObjectURL(f) : null;
-                  });
-                }}
-              />
-              {coverPreviewUrl && coverFile?.type.startsWith("image/") ? (
-                <img
-                  src={coverPreviewUrl}
-                  alt=""
-                  className="mt-2 h-24 w-full rounded-xl object-cover"
-                />
-              ) : null}
-            </div>
-          ) : null}
+              Create recurring sessions (semester-style)
+            </label>
+            {recurring ? (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-zinc-600">
+                  Uses the clock time from “Starts” above on each selected weekday between
+                  the dates below (bulk creates up to 200 rows).
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label
+                      className="text-xs font-semibold text-zinc-500"
+                      htmlFor="act-range-start"
+                    >
+                      Range start
+                    </label>
+                    <input
+                      id="act-range-start"
+                      type="date"
+                      value={rangeStart}
+                      onChange={(ev) => setRangeStart(ev.target.value)}
+                      className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="text-xs font-semibold text-zinc-500"
+                      htmlFor="act-range-end"
+                    >
+                      Range end
+                    </label>
+                    <input
+                      id="act-range-end"
+                      type="date"
+                      value={rangeEnd}
+                      onChange={(ev) => setRangeEnd(ev.target.value)}
+                      className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-zinc-500">Weekdays</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {WEEKDAYS.map((label, i) => (
+                      <label
+                        key={label}
+                        className="flex cursor-pointer items-center gap-1 rounded-full border border-jkl-border bg-white px-2 py-1 text-xs font-medium"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={weekdays[i] ?? false}
+                          onChange={(ev) => {
+                            const next = [...weekdays];
+                            next[i] = ev.target.checked;
+                            setWeekdays(next);
+                          }}
+                          className="rounded border-jkl-border"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </form>
       </AppModal>
     </div>

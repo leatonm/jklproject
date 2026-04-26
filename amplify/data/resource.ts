@@ -17,6 +17,7 @@ const schema = a.schema({
       classActivities: a.hasMany("ClassActivity", "programId"),
       highlights: a.hasMany("Highlight", "programId"),
       resourceLibraryLinks: a.hasMany("ResourceLibraryLink", "programId"),
+      attendanceRecords: a.hasMany("AttendanceRecord", "programId"),
     })
     .authorization((allow) => [allow.owner()]),
 
@@ -28,7 +29,16 @@ const schema = a.schema({
       name: a.string().required(),
       grade: a.string(),
       notes: a.string(),
+      parentName: a.string(),
+      parentEmail: a.string(),
+      /** ISO `YYYY-MM-DD` for age-based guardian rules in the app. */
+      dateOfBirth: a.date(),
+      /** Set when guardian completes digital consent (or marked by staff). */
+      consentDigitalSignedAt: a.datetime(),
+      /** S3 key for uploaded scanned consent (see `student-consent-uploads/*` storage). */
+      consentUploadKey: a.string(),
       enrolledAt: a.datetime().required(),
+      attendanceRecords: a.hasMany("AttendanceRecord", "studentId"),
     })
     .secondaryIndexes((index) => [
       index("programId").sortKeys(["enrolledAt"]),
@@ -46,14 +56,34 @@ const schema = a.schema({
       location: a.string(),
       description: a.string(),
       notes: a.string(),
+      /** When true, session was canceled but kept on the calendar for history. */
+      canceled: a.boolean(),
+      /** Optional id shared by rows created from one recurring bulk action. */
+      seriesId: a.string(),
       /** Public HTTPS image (e.g. CDN). */
       coverImageUrl: a.string(),
       /** S3 object key under the app storage bucket (see `amplify/storage/resource.ts`). */
       coverImageKey: a.string(),
+      attendanceRecords: a.hasMany("AttendanceRecord", "classActivityId"),
     })
     .secondaryIndexes((index) => [
       index("programId").sortKeys(["startsAt"]),
     ])
+    .authorization((allow) => [allow.owner()]),
+
+  /** Per-student mark for one class session (links roster to scheduled activities). */
+  AttendanceRecord: a
+    .model({
+      programId: a.id().required(),
+      program: a.belongsTo("Program", "programId"),
+      classActivityId: a.id().required(),
+      classActivity: a.belongsTo("ClassActivity", "classActivityId"),
+      studentId: a.id().required(),
+      student: a.belongsTo("Student", "studentId"),
+      /** `present` | `absent` | `unmarked` */
+      status: a.string().required(),
+    })
+    .secondaryIndexes((index) => [index("classActivityId")])
     .authorization((allow) => [allow.owner()]),
 
   /** Instructor-captured highlight for reports (SOW: reporting & engagement). */
