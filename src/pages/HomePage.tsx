@@ -10,6 +10,7 @@ import { LogoMark } from "@/components/LogoMark";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import { resourceLibraryItems, type ResourceLibraryItem } from "@/data/resourceLibrary";
 import {
+  ensureDefaultResourceLibraryLinksForProgram,
   hasRuntimeResourceLibraryLinkClient,
   listResourceLibraryLinksForProgram,
   listStudentsForProgram,
@@ -106,23 +107,26 @@ export function HomePage() {
       setActivitiesPreview(upcoming);
 
       if (hasRuntimeResourceLibraryLinkClient()) {
-        const rows = lib.data ?? [];
-        if (rows.length > 0) {
-          setResourceItems(
-            rows.map((r) => ({
-              id: r.id,
-              title: r.title,
-              subtitle: r.subtitle?.trim() || "",
-              url: r.url,
-              kind: r.kind === "video" ? "video" : "article",
-              color: r.color ?? "bg-zinc-200",
-              thumbnailUrl: r.thumbnailUrl ?? undefined,
-              thumbnailKey: r.thumbnailKey ?? undefined,
-            })),
-          );
-        } else {
-          setResourceItems([]);
+        let rows = lib.data ?? [];
+        if (rows.length === 0) {
+          const seeded = await ensureDefaultResourceLibraryLinksForProgram(programId);
+          if (!seeded.error) {
+            const after = await listResourceLibraryLinksForProgram(programId, { limit: 48 });
+            if (!after.errors?.length) rows = after.data ?? [];
+          }
         }
+        setResourceItems(
+          rows.map((r) => ({
+            id: r.id,
+            title: r.title,
+            subtitle: r.subtitle?.trim() || "",
+            url: r.url,
+            kind: r.kind === "video" ? "video" : "article",
+            color: r.color ?? "bg-zinc-200",
+            thumbnailUrl: r.thumbnailUrl ?? undefined,
+            thumbnailKey: r.thumbnailKey ?? undefined,
+          })),
+        );
       } else {
         setResourceItems(resourceLibraryItems);
       }

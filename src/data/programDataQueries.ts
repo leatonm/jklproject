@@ -480,6 +480,63 @@ export async function createResourceLibraryLinkRecord(input: {
   );
 }
 
+type EnsureDefaultResourcesOutcome = { created: boolean; error?: string };
+
+/**
+ * Backfills "default" Resource Library links into DynamoDB so local and prod
+ * read the same source of truth (instead of relying on `src/data/resourceLibrary.ts`).
+ *
+ * Safe to call repeatedly.
+ */
+export async function ensureDefaultResourceLibraryLinksForProgram(
+  programId: string,
+): Promise<EnsureDefaultResourcesOutcome> {
+  const api = resourceLibraryLinkApi();
+  if (!api || typeof api.list !== "function" || typeof api.create !== "function") {
+    return { created: false };
+  }
+
+  try {
+    const existing = await listResourceLibraryLinksForProgram(programId, { limit: 500 });
+    if (existing.errors?.length) {
+      return { created: false, error: existing.errors.map((e) => e.message).join(" ") };
+    }
+
+    const CONSENT_URL = "/consent-form";
+    const already = (existing.data ?? []).some((r) => (r.url ?? "").trim() === CONSENT_URL);
+    if (already) return { created: false };
+
+    const minOrder = (existing.data ?? []).reduce<number | null>((m, r) => {
+      const oi = r.orderIndex;
+      if (oi === undefined || oi === null || !Number.isFinite(oi)) return m;
+      if (m === null) return oi;
+      return Math.min(m, oi);
+    }, null);
+
+    const orderIndex = minOrder === null ? 0 : minOrder - 1;
+
+    const created = (await createResourceLibraryLinkRecord({
+      programId,
+      title: "Parent consent form (print / PDF)",
+      subtitle: "In-app printable template · same as roster link",
+      url: CONSENT_URL,
+      kind: "article",
+      color: "bg-emerald-200",
+      thumbnailUrl:
+        "https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=640&h=360&fit=crop&q=80",
+      orderIndex,
+    })) as { errors?: { message: string }[] };
+
+    if (created.errors?.length) {
+      return { created: false, error: created.errors.map((e) => e.message).join(" ") };
+    }
+
+    return { created: true };
+  } catch (e) {
+    return { created: false, error: e instanceof Error ? e.message : "Failed to seed defaults." };
+  }
+}
+
 export function missingBackendModelsMessage(): string | null {
   const missing: string[] = [];
   if (!hasRuntimeClassActivityClient()) {

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { AppModal } from "@/components/ui/AppModal";
 import {
   createResourceLibraryLinkRecord,
+  ensureDefaultResourceLibraryLinksForProgram,
   hasRuntimeResourceLibraryLinkClient,
   listResourceLibraryLinksForProgram,
   resourceLibraryLinkDeployHint,
@@ -79,9 +80,13 @@ export function ResourceLibraryPage() {
     setListLoading(true);
     setListError(null);
     try {
-      const res = await listResourceLibraryLinksForProgram(programId, {
-        limit: 200,
-      });
+      let res = await listResourceLibraryLinksForProgram(programId, { limit: 200 });
+      if (!res.errors?.length && (res.data ?? []).length === 0) {
+        const seeded = await ensureDefaultResourceLibraryLinksForProgram(programId);
+        if (!seeded.error) {
+          res = await listResourceLibraryLinksForProgram(programId, { limit: 200 });
+        }
+      }
       if (res.errors?.length) {
         setListError(res.errors.map((e) => e.message).join(" "));
         setRows([]);

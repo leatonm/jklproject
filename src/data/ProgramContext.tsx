@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { useAuth } from "@/auth/AuthContext";
+import { ensureDefaultResourceLibraryLinksForProgram } from "@/data/programDataQueries";
 
 type ProgramContextValue = {
   /** Set after the default program is created or loaded; null when cloud data is disabled. */
@@ -49,6 +50,7 @@ export function ProgramProvider({ children }: { children: ReactNode }) {
       const existing = first.data[0];
       if (existing?.id) {
         setProgramId(existing.id);
+        void ensureDefaultResourceLibraryLinksForProgram(existing.id);
         return;
       }
       const created = await amplifyDataClient.models.Program.create({
@@ -66,6 +68,7 @@ export function ProgramProvider({ children }: { children: ReactNode }) {
         return;
       }
       setProgramId(created.data.id);
+      void ensureDefaultResourceLibraryLinksForProgram(created.data.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load program.");
       setProgramId(null);
