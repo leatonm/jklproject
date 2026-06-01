@@ -252,7 +252,12 @@ const schema = a.schema({
     .returns(a.ref("ReportReminderResult"))
     .authorization((allow) => [allow.group("Admin"), allow.authenticated()])
     .handler(a.handler.function(sendReportReminder)),
-});
+})
+.authorization((allow) => [
+  allow.resource(sendConsentEmail),
+  allow.resource(submitConsent),
+  allow.resource(sendReportReminder),
+]);
 
 export type Schema = ClientSchema<typeof schema>;
 
