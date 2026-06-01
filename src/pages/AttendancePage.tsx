@@ -4,6 +4,7 @@ import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import {
+  completeActivityRollCall,
   getClassActivityById,
   hasRuntimeAttendanceRecordClient,
   listAttendanceRecordsForActivity,
@@ -14,6 +15,12 @@ import {
   type StudentRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
+import {
+  attendanceSummaryText,
+  attendanceStatusForActivity,
+  attendanceBadgeClass,
+  attendanceStatusLabel,
+} from "@/lib/attendanceStatus";
 import { formatMediumDate } from "@/lib/formatMediumDate";
 import { cn } from "@/lib/cn";
 
@@ -27,6 +34,7 @@ export function AttendancePage() {
   const [attendance, setAttendance] = useState<AttendanceRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
 
   const attendanceApi = hasRuntimeAttendanceRecordClient();
 
@@ -35,6 +43,21 @@ export function AttendancePage() {
     for (const r of attendance) m.set(r.studentId, r.status);
     return m;
   }, [attendance]);
+
+  const presentCount = useMemo(
+    () => [...byStudent.values()].filter((s) => s === "present").length,
+    [byStudent],
+  );
+
+  const allMarked = useMemo(() => {
+    if (students.length === 0) return false;
+    return students.every((s) => {
+      const st = byStudent.get(s.id) ?? "unmarked";
+      return st === "present" || st === "absent";
+    });
+  }, [students, byStudent]);
+
+  const sessionStatus = activity ? attendanceStatusForActivity(activity) : null;
 
   const load = useCallback(async () => {
     if (!activityId || !programId || cloudDataDisabled) {
@@ -105,6 +128,37 @@ export function AttendancePage() {
     }
   }
 
+  async function finishRollCall() {
+    if (!activityId || !allMarked || cloudDataDisabled) return;
+    setCompleting(true);
+    setLoadError(null);
+    try {
+      const res = (await completeActivityRollCall({
+        activityId,
+        presentCount,
+        totalCount: students.length,
+      })) as { errors?: { message: string }[] };
+      if (res.errors?.length) {
+        setLoadError(res.errors.map((e) => e.message).join(" "));
+        return;
+      }
+      await load();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Could not complete roll call.");
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  function statusButtonClass(st: string, current: string): string {
+    if (current !== st) {
+      return "border border-jkl-border bg-zinc-50 text-zinc-700 hover:bg-zinc-100";
+    }
+    if (st === "present") return "bg-emerald-600 text-white";
+    if (st === "absent") return "bg-red-600 text-white";
+    return "bg-jkl-navy text-white";
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-zinc-50">
       <PageHeader
@@ -144,6 +198,43 @@ export function AttendancePage() {
                 Canceled session
               </p>
             ) : null}
+            {sessionStatus ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                    attendanceBadgeClass(sessionStatus),
+                  )}
+                >
+                  {attendanceStatusLabel(sessionStatus)}
+                </span>
+                {attendanceSummaryText(
+                  activity.attendancePresentCount,
+                  activity.attendanceTotalCount,
+                ) ? (
+                  <span className="text-sm font-semibold text-emerald-800">
+                    {attendanceSummaryText(
+                      activity.attendancePresentCount,
+                      activity.attendanceTotalCount,
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-sm text-zinc-600">
+                    Marked: {presentCount}/{students.length} present
+                  </span>
+                )}
+              </div>
+            ) : null}
+            {allMarked && !activity.attendanceCompletedAt && !activity.canceled ? (
+              <button
+                type="button"
+                disabled={completing || cloudDataDisabled}
+                onClick={() => void finishRollCall()}
+                className="mt-3 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"
+              >
+                {completing ? "Saving…" : "Complete attendance for this session"}
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -170,9 +261,7 @@ export function AttendancePage() {
                       onClick={() => void setStatus(s.id, st)}
                       className={cn(
                         "rounded-full px-3 py-1.5 text-xs font-semibold capitalize",
-                        current === st
-                          ? "bg-jkl-navy text-white"
-                          : "border border-jkl-border bg-zinc-50 text-zinc-700 hover:bg-zinc-100",
+                        statusButtonClass(st, current),
                         (busyId === s.id || !attendanceApi || cloudDataDisabled) &&
                           "opacity-50",
                       )}

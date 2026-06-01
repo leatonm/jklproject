@@ -10,6 +10,7 @@ import {
   setRememberedEmail,
 } from "@/lib/authEmail";
 import { DEV_TEST_PASSWORD, DEV_TEST_USERNAME, isDevTestCredentials } from "@/lib/devAuth";
+import { fetchUserRoles, isAdmin } from "@/lib/userRoles";
 import { cn } from "@/lib/cn";
 
 export function LoginPage() {
@@ -27,6 +28,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginAs, setLoginAs] = useState<"instructor" | "admin">("instructor");
 
   useEffect(() => {
     if (!loading && user) navigate(from, { replace: true });
@@ -42,7 +44,7 @@ export function LoginPage() {
         signInDevMock();
         if (remember) setRememberedEmail(DEV_TEST_USERNAME);
         else setRememberedEmail("");
-        navigate(from, { replace: true });
+        navigate(loginAs === "admin" ? "/admin" : from, { replace: true });
         return;
       }
 
@@ -56,7 +58,10 @@ export function LoginPage() {
       }
       if (remember) setRememberedEmail(normalized);
       else setRememberedEmail("");
-      navigate(from, { replace: true });
+      const roles = await fetchUserRoles();
+      const destination =
+        loginAs === "admin" && isAdmin(roles) ? "/admin" : from === "/admin" ? "/" : from;
+      navigate(destination, { replace: true });
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Sign-in failed. Try again.";
@@ -83,6 +88,37 @@ export function LoginPage() {
           <p className="mt-2 text-center text-sm text-zinc-500">
             Use the email and password for your JKL program access.
           </p>
+          <p className="mt-2 text-center text-sm text-zinc-500">
+            Sign in as an instructor or administrator. Your role is set in Cognito groups.
+          </p>
+
+          <div className="mt-6 flex rounded-xl bg-zinc-100 p-1">
+            <button
+              type="button"
+              onClick={() => setLoginAs("instructor")}
+              className={cn(
+                "flex-1 rounded-lg py-2 text-sm font-semibold transition-colors",
+                loginAs === "instructor"
+                  ? "bg-white text-jkl-navy shadow-sm"
+                  : "text-zinc-600 hover:text-jkl-ink",
+              )}
+            >
+              Instructor
+            </button>
+            <button
+              type="button"
+              onClick={() => setLoginAs("admin")}
+              className={cn(
+                "flex-1 rounded-lg py-2 text-sm font-semibold transition-colors",
+                loginAs === "admin"
+                  ? "bg-white text-jkl-navy shadow-sm"
+                  : "text-zinc-600 hover:text-jkl-ink",
+              )}
+            >
+              Admin
+            </button>
+          </div>
+
           {import.meta.env.DEV ? (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-center text-xs text-amber-900 ring-1 ring-amber-200/80">
               <strong>Local dev:</strong> email <code className="font-mono">{DEV_TEST_USERNAME}</code>{" "}

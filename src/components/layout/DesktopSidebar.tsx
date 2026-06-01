@@ -7,9 +7,11 @@ import {
   Plus,
   Search,
   Settings,
+  Shield,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
+import { useUserRoles } from "@/auth/useUserRoles";
 import { LogoMark } from "@/components/LogoMark";
 import { cn } from "@/lib/cn";
 
@@ -18,6 +20,7 @@ const item =
 
 export function DesktopSidebar() {
   const { signOutUser } = useAuth();
+  const { admin } = useUserRoles();
 
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-jkl-border bg-jkl-cream/80 px-3 py-6 md:flex">
@@ -83,13 +86,28 @@ export function DesktopSidebar() {
           <Search className="h-5 w-5 shrink-0" aria-hidden />
           Search
         </NavLink>
+        {admin ? (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) => cn(item, isActive && "bg-white text-jkl-navy shadow-sm")}
+          >
+            <Shield className="h-5 w-5 shrink-0" aria-hidden />
+            Admin dashboard
+          </NavLink>
+        ) : null}
+        <NavLink
+          to="/profile"
+          className={({ isActive }) => cn(item, isActive && "bg-white text-jkl-navy shadow-sm")}
+        >
+          <Settings className="h-5 w-5 shrink-0" aria-hidden />
+          My contact info
+        </NavLink>
       </nav>
       <button
         type="button"
         onClick={() => void signOutUser()}
-        className="mt-auto flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-jkl-ink"
+        className="mt-4 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-jkl-ink"
       >
-        <Settings className="h-5 w-5 shrink-0" aria-hidden />
         Sign out
       </button>
     </aside>

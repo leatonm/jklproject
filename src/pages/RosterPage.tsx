@@ -1,4 +1,4 @@
-import { Mail, Plus, Upload } from "lucide-react";
+import { Pencil, Plus, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
@@ -7,45 +7,21 @@ import { AppModal } from "@/components/ui/AppModal";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import {
   createStudentRecord,
+  enrollStudentWithConsent,
   listStudentsForProgram,
   updateStudentRecord,
   type StudentRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
-import { consentStatusLabel, consentUiStatus } from "@/lib/consentStatus";
+import { consentBadgeClass, consentStatusLabel, consentUiStatus } from "@/lib/consentStatus";
 import { formatMediumDate } from "@/lib/formatMediumDate";
 import { hasStorageInOutputs, studentHasField } from "@/lib/amplifyModelMeta";
 import { ageYearsFromIsoDate } from "@/lib/studentAge";
 import { getStudentConsentFileUrl, uploadStudentConsentFile } from "@/lib/uploadStudentConsent";
 import { cn } from "@/lib/cn";
 
-const GRADE_OPTIONS = [
-  "Pre-K",
-  "K",
-  "1",
-  "2",
-  "3",
-  "4",
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "10",
-  "11",
-  "12",
-  "Other",
-] as const;
-
-function mailtoConsent(parentEmail: string, studentName: string) {
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const subject = encodeURIComponent(`Participation consent — ${studentName}`);
-  const body = encodeURIComponent(
-    `Please review the consent form (print or save as PDF from this link):\n${origin}/consent-form\n\nThank you.`,
-  );
-  const safeEmail = parentEmail.trim();
-  return `mailto:${safeEmail}?subject=${subject}&body=${body}`;
-}
+/** JKL after-school program serves grades 9–12 only. */
+const GRADE_OPTIONS = ["9", "10", "11", "12"] as const;
 
 export function RosterPage() {
   const location = useLocation();
@@ -69,13 +45,15 @@ export function RosterPage() {
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
+  const [studentPhone, setStudentPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
   const [uploadBusyId, setUploadBusyId] = useState<string | null>(null);
-  const [markBusyId, setMarkBusyId] = useState<string | null>(null);
 
   const loadFirst = useCallback(async () => {
     if (!programId || cloudDataDisabled) {
@@ -201,30 +179,65 @@ export function RosterPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      const created = await createStudentRecord({
-        programId,
-        name: trimmed,
-        grade: grade.trim(),
-        notes: notes.trim() || undefined,
-        parentName: parentName.trim() || undefined,
-        parentEmail: parentEmail.trim() || undefined,
-        dateOfBirth: dateOfBirth.trim() || undefined,
-      });
-      if (created.errors?.length) {
-        setSaveError(created.errors.map((er) => er.message).join(" "));
-        return;
-      }
-      if (parentEmail.trim()) {
-        setToast(
-          "Student saved. Use “Email consent draft” on their card to open a prefilled message to the guardian (automated sending is planned).",
-        );
+      const trimmedEmail = parentEmail.trim();
+      if (trimmedEmail && needParent) {
+        const enrolled = await enrollStudentWithConsent({
+          programId,
+          name: trimmed,
+          grade: grade.trim(),
+          parentName: parentName.trim(),
+          parentEmail: trimmedEmail,
+          parentPhone: parentPhone.trim() || undefined,
+          studentPhone: studentPhone.trim() || undefined,
+          dateOfBirth: dateOfBirth.trim() || undefined,
+          notes: notes.trim() || undefined,
+        });
+        if (enrolled.errors?.length) {
+          const fallback = await createStudentRecord({
+            programId,
+            name: trimmed,
+            grade: grade.trim(),
+            notes: notes.trim() || undefined,
+            parentName: parentName.trim() || undefined,
+            parentEmail: trimmedEmail,
+            parentPhone: parentPhone.trim() || undefined,
+            studentPhone: studentPhone.trim() || undefined,
+            dateOfBirth: dateOfBirth.trim() || undefined,
+          });
+          if (fallback.errors?.length) {
+            setSaveError(enrolled.errors.map((er) => er.message).join(" "));
+            return;
+          }
+          setToast(
+            "Student saved locally. Deploy backend and set SES secrets to auto-send waiver email.",
+          );
+        } else {
+          setToast(enrolled.data?.message ?? "Student saved. Waiver email sent to guardian.");
+        }
       } else {
+        const created = await createStudentRecord({
+          programId,
+          name: trimmed,
+          grade: grade.trim(),
+          notes: notes.trim() || undefined,
+          parentName: parentName.trim() || undefined,
+          parentEmail: trimmedEmail || undefined,
+          parentPhone: parentPhone.trim() || undefined,
+          studentPhone: studentPhone.trim() || undefined,
+          dateOfBirth: dateOfBirth.trim() || undefined,
+        });
+        if (created.errors?.length) {
+          setSaveError(created.errors.map((er) => er.message).join(" "));
+          return;
+        }
         setToast("Student saved.");
       }
       setName("");
       setGrade("");
       setParentName("");
       setParentEmail("");
+      setParentPhone("");
+      setStudentPhone("");
       setDateOfBirth("");
       setNotes("");
       closeModal();
@@ -244,6 +257,7 @@ export function RosterPage() {
       const res = (await updateStudentRecord({
         id: student.id,
         consentUploadKey: key,
+        consentStatus: "uploaded",
       })) as { errors?: { message: string }[] };
       if (res.errors?.length) {
         setListError(res.errors.map((e) => e.message).join(" "));
@@ -257,24 +271,48 @@ export function RosterPage() {
     }
   }
 
-  async function markDigitalConsent(studentId: string) {
-    if (!studentHasField("consentDigitalSignedAt")) return;
-    setMarkBusyId(studentId);
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editStudent || cloudDataDisabled) return;
+    setSaving(true);
+    setSaveError(null);
     try {
       const res = (await updateStudentRecord({
-        id: studentId,
-        consentDigitalSignedAt: new Date().toISOString(),
+        id: editStudent.id,
+        name: name.trim(),
+        grade: grade.trim(),
+        parentName: parentName.trim() || null,
+        parentEmail: parentEmail.trim() || null,
+        parentPhone: parentPhone.trim() || null,
+        studentPhone: studentPhone.trim() || null,
+        dateOfBirth: dateOfBirth.trim() || null,
+        notes: notes.trim() || null,
       })) as { errors?: { message: string }[] };
       if (res.errors?.length) {
-        setListError(res.errors.map((e) => e.message).join(" "));
+        setSaveError(res.errors.map((er) => er.message).join(" "));
         return;
       }
+      setEditStudent(null);
+      setToast("Student updated.");
       await loadFirst();
-    } catch (e) {
-      setListError(e instanceof Error ? e.message : "Could not update consent.");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not update student.");
     } finally {
-      setMarkBusyId(null);
+      setSaving(false);
     }
+  }
+
+  function openEdit(student: StudentRow) {
+    setEditStudent(student);
+    setName(student.name);
+    setGrade(student.grade ?? "");
+    setParentName(student.parentName ?? "");
+    setParentEmail(student.parentEmail ?? "");
+    setParentPhone(student.parentPhone ?? "");
+    setStudentPhone(student.studentPhone ?? "");
+    setDateOfBirth(student.dateOfBirth ?? "");
+    setNotes(student.notes ?? "");
+    setSaveError(null);
   }
 
   async function openUploadedFile(key: string) {
@@ -353,12 +391,6 @@ export function RosterPage() {
 
         {students.map((s) => {
           const c = consentUiStatus(s);
-          const badgeClass =
-            c === "complete"
-              ? "bg-emerald-100 text-emerald-900"
-              : c === "in_progress"
-                ? "bg-amber-100 text-amber-900"
-                : "bg-zinc-200 text-zinc-800";
           return (
             <article
               key={s.id}
@@ -376,25 +408,36 @@ export function RosterPage() {
                     <span
                       className={cn(
                         "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                        badgeClass,
+                        consentBadgeClass(c),
                       )}
                     >
                       {consentStatusLabel(c)}
                     </span>
-                    <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-700">
-                      {s.enrolledAt || s.createdAt
-                        ? `Added ${formatMediumDate((s.enrolledAt ?? s.createdAt) as string)}`
-                        : "Enrolled date TBD"}
-                    </span>
+                    {s.consentEmailSentAt ? (
+                      <span className="text-xs text-zinc-500">
+                        Email sent {formatMediumDate(s.consentEmailSentAt)}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => openEdit(s)}
+                  className="inline-flex items-center gap-1 rounded-xl border border-jkl-border px-3 py-1.5 text-xs font-semibold text-jkl-navy hover:bg-zinc-50"
+                >
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  Edit
+                </button>
               </div>
-              {(s.parentName || s.parentEmail) ? (
+              {(s.parentName || s.parentEmail || s.parentPhone) ? (
                 <p className="mt-2 text-sm text-zinc-600">
                   {s.parentName ? <span className="font-medium">{s.parentName}</span> : null}
-                  {s.parentName && s.parentEmail ? " · " : null}
-                  {s.parentEmail ? s.parentEmail : null}
+                  {s.parentEmail ? ` · ${s.parentEmail}` : null}
+                  {s.parentPhone ? ` · ${s.parentPhone}` : null}
                 </p>
+              ) : null}
+              {s.studentPhone ? (
+                <p className="mt-1 text-xs text-zinc-500">Student phone: {s.studentPhone}</p>
               ) : null}
               {s.dateOfBirth ? (
                 <p className="mt-1 text-xs text-zinc-500">DOB on file: {s.dateOfBirth}</p>
@@ -410,35 +453,16 @@ export function RosterPage() {
                 >
                   Download / print form
                 </Link>
-                {s.parentEmail?.trim() ? (
-                  <a
-                    href={mailtoConsent(s.parentEmail.trim(), s.name)}
-                    className="inline-flex items-center gap-1 rounded-xl border border-jkl-border bg-white px-3 py-2 text-xs font-semibold text-jkl-navy hover:bg-zinc-50"
-                  >
-                    <Mail className="h-3.5 w-3.5" aria-hidden />
-                    Email consent draft
-                  </a>
-                ) : null}
-                {studentHasField("consentDigitalSignedAt") ? (
-                  <button
-                    type="button"
-                    disabled={markBusyId === s.id || cloudDataDisabled}
-                    onClick={() => void markDigitalConsent(s.id)}
-                    className="rounded-xl bg-jkl-navy px-3 py-2 text-xs font-semibold text-white hover:bg-jkl-navy-muted disabled:opacity-50"
-                  >
-                    {markBusyId === s.id ? "Saving…" : "Mark digital consent received"}
-                  </button>
-                ) : null}
                 {s.consentUploadKey ? (
                   <button
                     type="button"
                     onClick={() => void openUploadedFile(s.consentUploadKey as string)}
-                    className="rounded-xl border border-jkl-border px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
                   >
                     View uploaded scan
                   </button>
                 ) : null}
-                {studentHasField("consentUploadKey") && hasStorageInOutputs() ? (
+                {studentHasField("consentUploadKey") && hasStorageInOutputs() && c !== "complete" ? (
                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-xl border border-jkl-border px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
                     <Upload className="h-3.5 w-3.5" aria-hidden />
                     {uploadBusyId === s.id ? "Uploading…" : "Upload signed form"}
@@ -505,8 +529,8 @@ export function RosterPage() {
             </p>
           ) : null}
           <p className="text-xs text-zinc-500">
-            Student and guardian details are on one screen. After save, use email draft or
-            print form for consent; mark digital receipt or upload a scan on the roster card.
+            Grades 9–12 only. Waiver email sends automatically when guardian email is provided
+            (after backend deploy). Consent turns green when the parent signs or you upload a scan.
           </p>
           <div>
             <label className="text-xs font-semibold text-zinc-500" htmlFor="stu-name">
@@ -587,6 +611,32 @@ export function RosterPage() {
               autoComplete="email"
             />
           </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="stu-phone">
+              Student phone (optional)
+            </label>
+            <input
+              id="stu-phone"
+              type="tel"
+              value={studentPhone}
+              onChange={(ev) => setStudentPhone(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+              autoComplete="tel"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="stu-parent-phone">
+              Parent / guardian phone (optional)
+            </label>
+            <input
+              id="stu-parent-phone"
+              type="tel"
+              value={parentPhone}
+              onChange={(ev) => setParentPhone(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+              autoComplete="tel"
+            />
+          </div>
           {studentHasField("notes") ? (
             <div>
               <label className="text-xs font-semibold text-zinc-500" htmlFor="stu-notes">
@@ -601,6 +651,117 @@ export function RosterPage() {
               />
             </div>
           ) : null}
+        </form>
+      </AppModal>
+
+      <AppModal
+        open={editStudent !== null}
+        onClose={() => setEditStudent(null)}
+        title="Edit student & guardian"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditStudent(null)}
+              className="rounded-xl border border-jkl-border px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="roster-edit-student-form"
+              disabled={saving || cloudDataDisabled}
+              className="rounded-xl bg-jkl-navy px-4 py-2 text-sm font-semibold text-white hover:bg-jkl-navy-muted disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        }
+      >
+        <form id="roster-edit-student-form" className="space-y-3" onSubmit={saveEdit}>
+          {saveError ? (
+            <p className="text-sm text-red-600" role="alert">
+              {saveError}
+            </p>
+          ) : null}
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-stu-name">
+              Full name
+            </label>
+            <input
+              id="edit-stu-name"
+              value={name}
+              onChange={(ev) => setName(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+              required
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-stu-grade">
+              Grade
+            </label>
+            <select
+              id="edit-stu-grade"
+              value={grade}
+              onChange={(ev) => setGrade(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+              required
+            >
+              <option value="">Select grade…</option>
+              {GRADE_OPTIONS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-parent-name">
+              Parent / guardian name
+            </label>
+            <input
+              id="edit-parent-name"
+              value={parentName}
+              onChange={(ev) => setParentName(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-parent-email">
+              Parent / guardian email
+            </label>
+            <input
+              id="edit-parent-email"
+              type="email"
+              value={parentEmail}
+              onChange={(ev) => setParentEmail(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-parent-phone">
+              Parent / guardian phone
+            </label>
+            <input
+              id="edit-parent-phone"
+              type="tel"
+              value={parentPhone}
+              onChange={(ev) => setParentPhone(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-500" htmlFor="edit-stu-phone">
+              Student phone
+            </label>
+            <input
+              id="edit-stu-phone"
+              type="tel"
+              value={studentPhone}
+              onChange={(ev) => setStudentPhone(ev.target.value)}
+              className="mt-1 w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+            />
+          </div>
         </form>
       </AppModal>
     </div>

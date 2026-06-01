@@ -19,7 +19,23 @@ export function hasAmplifyModel(name: string): boolean {
 /** Field names on Student in the deployed schema. */
 export function studentHasField(name: string): boolean {
   const fields = models().Student?.fields;
-  return Boolean(fields && Object.prototype.hasOwnProperty.call(fields, name));
+  if (!fields) {
+    return [
+      "grade",
+      "notes",
+      "studentPhone",
+      "parentName",
+      "parentEmail",
+      "parentPhone",
+      "dateOfBirth",
+      "consentStatus",
+      "consentEmailSentAt",
+      "consentDigitalSignedAt",
+      "consentUploadKey",
+      "enrolledAt",
+    ].includes(name);
+  }
+  return Object.prototype.hasOwnProperty.call(fields, name);
 }
 
 /** When `ClassActivity` is missing from downloaded outputs (stale file), allow known optional fields. */
@@ -35,6 +51,9 @@ export function classActivityHasField(name: string): boolean {
       "endsAt",
       "canceled",
       "seriesId",
+      "attendanceCompletedAt",
+      "attendancePresentCount",
+      "attendanceTotalCount",
     ].includes(name);
   }
   return Object.prototype.hasOwnProperty.call(fields, name);

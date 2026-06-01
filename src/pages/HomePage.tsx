@@ -10,8 +10,10 @@ import { LogoMark } from "@/components/LogoMark";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import { resourceLibraryItems, type ResourceLibraryItem } from "@/data/resourceLibrary";
 import {
+  averageAttendancePercent,
   ensureDefaultResourceLibraryLinksForProgram,
   hasRuntimeResourceLibraryLinkClient,
+  listActivitiesForProgram,
   listResourceLibraryLinksForProgram,
   listStudentsForProgram,
   listUpcomingActivitiesForProgram,
@@ -62,6 +64,7 @@ export function HomePage() {
   } = useProgram();
   const [metric, setMetric] = useState<MetricMode>("students");
   const [studentCount, setStudentCount] = useState<string>("—");
+  const [avgAttendance, setAvgAttendance] = useState<string>("—");
   const [activitiesPreview, setActivitiesPreview] = useState<ActivityPreview[]>([]);
   const [resourceItems, setResourceItems] = useState<ResourceLibraryItem[]>(
     resourceLibraryItems,
@@ -71,6 +74,7 @@ export function HomePage() {
   const loadHome = useCallback(async () => {
     if (!programId || cloudDataDisabled) {
       setStudentCount("—");
+      setAvgAttendance("—");
       setActivitiesPreview([]);
       setResourceItems(resourceLibraryItems);
       setHomeLoadError(null);
@@ -78,9 +82,10 @@ export function HomePage() {
     }
     setHomeLoadError(null);
     try {
-      const [stu, act, lib] = await Promise.all([
+      const [stu, act, allAct, lib] = await Promise.all([
         listStudentsForProgram(programId, { limit: DATA_PAGE_SIZE }),
         listUpcomingActivitiesForProgram(programId, 12),
+        listActivitiesForProgram(programId, { limit: DATA_PAGE_SIZE }),
         hasRuntimeResourceLibraryLinkClient()
           ? listResourceLibraryLinksForProgram(programId, { limit: 48 })
           : Promise.resolve({ data: [], errors: undefined }),
@@ -88,6 +93,7 @@ export function HomePage() {
       const err =
         stu.errors?.[0]?.message ??
         act.errors?.[0]?.message ??
+        allAct.errors?.[0]?.message ??
         lib.errors?.[0]?.message;
       if (err) {
         setHomeLoadError(err);
@@ -96,6 +102,8 @@ export function HomePage() {
       const n = stu.data?.length ?? 0;
       const more = Boolean(stu.nextToken);
       setStudentCount(n === 0 && !more ? "0" : `${n}${more ? "+" : ""}`);
+      const avg = averageAttendancePercent(allAct.data ?? []);
+      setAvgAttendance(avg != null ? `${avg}%` : "—");
       const upcoming = (act.data ?? []).map((row) => ({
         id: row.id,
         title: row.title,
@@ -199,8 +207,15 @@ export function HomePage() {
                 ? programLoading && !cloudDataDisabled
                   ? "…"
                   : studentCount
-                : "—"}
+                : programLoading && !cloudDataDisabled
+                  ? "…"
+                  : avgAttendance}
             </p>
+            {metric === "attendance" && avgAttendance === "—" && !cloudDataDisabled ? (
+              <p className="mt-1 text-sm text-white/80">
+                Complete roll call on class activities to see average attendance
+              </p>
+            ) : null}
             {metric === "students" && cloudDataDisabled ? (
               <p className="mt-1 text-sm text-white/80">
                 Sign in with Cognito to load roster counts

@@ -17,6 +17,12 @@ import {
 import { useProgram } from "@/data/ProgramContext";
 import { classActivityHasField } from "@/lib/amplifyModelMeta";
 import {
+  attendanceBadgeClass,
+  attendanceStatusForActivity,
+  attendanceStatusLabel,
+  attendanceSummaryText,
+} from "@/lib/attendanceStatus";
+import {
   datetimeLocalToIso,
   formatMediumDate,
   isoToDatetimeLocalValue,
@@ -585,6 +591,26 @@ export function ActivitiesPage() {
                       {formatMediumDate(a.startsAt)}
                       {a.location ? ` · ${a.location}` : ""}
                     </p>
+                    {!a.canceled ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                            attendanceBadgeClass(attendanceStatusForActivity(a)),
+                          )}
+                        >
+                          {attendanceStatusLabel(attendanceStatusForActivity(a))}
+                        </span>
+                        {attendanceSummaryText(a.attendancePresentCount, a.attendanceTotalCount) ? (
+                          <span className="text-xs font-semibold text-emerald-800">
+                            {attendanceSummaryText(
+                              a.attendancePresentCount,
+                              a.attendanceTotalCount,
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {a.description ? (
                       <p className="mt-1 text-sm text-zinc-500">{a.description}</p>
                     ) : null}

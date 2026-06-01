@@ -1,20 +1,32 @@
-import { BarChart3, Plus } from "lucide-react";
+import { BarChart3, MessageSquare, Plus, Send } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
+import { useUserRoles } from "@/auth/useUserRoles";
 import { DataEnvironmentBanner } from "@/components/DataEnvironmentBanner";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AppModal } from "@/components/ui/AppModal";
 import { DATA_PAGE_SIZE } from "@/data/constants";
 import {
   createHighlightRecord,
+  createReportFeedback,
+  getInstructorProfile,
   hasRuntimeHighlightClient,
+  hasRuntimeReportFeedbackClient,
+  hasRuntimeWeeklyReportClient,
   listActivitiesForProgram,
+  listFeedbackForWeeklyReport,
   listHighlightsForProgram,
   listStudentsForProgram,
+  listWeeklyReportsForProgram,
   missingBackendModelsMessage,
+  sendReportReminderEmail,
+  upsertWeeklyReport,
   type HighlightRow,
+  type ReportFeedbackRow,
+  type WeeklyReportRow,
 } from "@/data/programDataQueries";
 import { useProgram } from "@/data/ProgramContext";
+import { formatWeekLabel, weekStartMonday } from "@/lib/weekReport";
 import { cn } from "@/lib/cn";
 
 type ReportSnapshot = {
@@ -62,6 +74,131 @@ export function ReportsPage() {
 
   const backendHint = missingBackendModelsMessage();
   const highlightsApiReady = hasRuntimeHighlightClient();
+  const weeklyApiReady = hasRuntimeWeeklyReportClient();
+  const feedbackApiReady = hasRuntimeReportFeedbackClient();
+  const { admin } = useUserRoles();
+
+  const currentWeek = weekStartMonday();
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReportRow[]>([]);
+  const [weeklyNotes, setWeeklyNotes] = useState("");
+  const [weeklyBusy, setWeeklyBusy] = useState(false);
+  const [feedbackByReport, setFeedbackByReport] = useState<Record<string, ReportFeedbackRow[]>>({});
+  const [feedbackDraft, setFeedbackDraft] = useState<Record<string, string>>({});
+  const [reminderBusyId, setReminderBusyId] = useState<string | null>(null);
+  const [instructorEmail, setInstructorEmail] = useState("");
+  const [instructorPhone, setInstructorPhone] = useState("");
+
+  const loadWeekly = useCallback(async () => {
+    if (!programId || cloudDataDisabled || !weeklyApiReady) {
+      setWeeklyReports([]);
+      return;
+    }
+    try {
+      const [repRes, profRes] = await Promise.all([
+        listWeeklyReportsForProgram(programId, { limit: 12 }),
+        getInstructorProfile(),
+      ]);
+      if (repRes.errors?.length) return;
+      setWeeklyReports(repRes.data ?? []);
+      const current = (repRes.data ?? []).find((r) => r.weekStart === currentWeek);
+      setWeeklyNotes(current?.instructorNotes ?? "");
+      if (profRes.data?.email) setInstructorEmail(profRes.data.email);
+      if (profRes.data?.phone) setInstructorPhone(profRes.data.phone);
+
+      if (feedbackApiReady && repRes.data?.length) {
+        const entries = await Promise.all(
+          repRes.data.map(async (r) => {
+            const fb = await listFeedbackForWeeklyReport(r.id);
+            return [r.id, fb.data ?? []] as const;
+          }),
+        );
+        setFeedbackByReport(Object.fromEntries(entries));
+      }
+    } catch {
+      /* optional section */
+    }
+  }, [programId, cloudDataDisabled, weeklyApiReady, feedbackApiReady, currentWeek]);
+
+  useEffect(() => {
+    void loadWeekly();
+  }, [loadWeekly]);
+
+  async function submitWeeklyReport() {
+    if (!programId || cloudDataDisabled || !weeklyApiReady) return;
+    setWeeklyBusy(true);
+    setReportError(null);
+    try {
+      const res = (await upsertWeeklyReport({
+        programId,
+        weekStart: currentWeek,
+        status: "submitted",
+        instructorNotes: weeklyNotes.trim() || undefined,
+        submittedAt: new Date().toISOString(),
+      })) as { errors?: { message: string }[] };
+      if (res.errors?.length) {
+        setReportError(res.errors.map((e) => e.message).join(" "));
+        return;
+      }
+      await loadWeekly();
+    } catch (e) {
+      setReportError(e instanceof Error ? e.message : "Could not submit report.");
+    } finally {
+      setWeeklyBusy(false);
+    }
+  }
+
+  async function addFeedback(weeklyReportId: string) {
+    const message = feedbackDraft[weeklyReportId]?.trim();
+    if (!message || !feedbackApiReady) return;
+    const res = (await createReportFeedback({
+      weeklyReportId,
+      message,
+      authorRole: "admin",
+    })) as { errors?: { message: string }[] };
+    if (res.errors?.length) {
+      setReportError(res.errors.map((e) => e.message).join(" "));
+      return;
+    }
+    setFeedbackDraft((prev) => ({ ...prev, [weeklyReportId]: "" }));
+    await loadWeekly();
+  }
+
+  async function remindInstructor(report: WeeklyReportRow, channel: "email" | "sms") {
+    setReminderBusyId(report.id);
+    setReportError(null);
+    const weekLabel = formatWeekLabel(report.weekStart);
+    const message = `Reminder: please complete your JKL weekly report for the week of ${weekLabel}.`;
+
+    if (channel === "email") {
+      const email = instructorEmail.trim();
+      if (!email) {
+        setReportError("Instructor email not set. Ask them to fill in Profile → contact info.");
+        setReminderBusyId(null);
+        return;
+      }
+      const res = await sendReportReminderEmail({
+        programId: report.programId,
+        recipientEmail: email,
+        message,
+        weeklyReportId: report.id,
+      });
+      if (res.errors?.length) {
+        setReportError(res.errors.map((e) => e.message).join(" "));
+      }
+      setReminderBusyId(null);
+      return;
+    }
+
+    const phone = instructorPhone.trim().replace(/\D/g, "");
+    if (!phone) {
+      setReportError("Instructor phone not set. Ask them to fill in Profile → contact info.");
+      setReminderBusyId(null);
+      return;
+    }
+    const smsBody = encodeURIComponent(message);
+    window.open(`sms:+${phone.startsWith("1") ? phone : `1${phone}`}?body=${smsBody}`, "_self");
+    setReminderBusyId(null);
+  }
 
   const loadFirst = useCallback(async () => {
     if (!programId || cloudDataDisabled) {
@@ -285,8 +422,8 @@ export function ReportsPage() {
         </div>
         <p className="mx-auto max-w-3xl pb-3 text-xs text-zinc-500">
           {range === "weekly"
-            ? "Weekly rollups will use stored highlights and attendance once those pipelines are connected."
-            : "Monthly summaries will aggregate paged queries—no full-table scans in the UI."}
+            ? "Submit your weekly report below. Admins can leave feedback and send reminders."
+            : "Monthly summaries aggregate weekly reports and highlights."}
         </p>
       </div>
 
@@ -295,6 +432,129 @@ export function ReportsPage() {
           cloudDataDisabled={cloudDataDisabled}
           error={programError ?? listError ?? reportError}
         />
+
+        {weeklyApiReady && range === "weekly" ? (
+          <section className="rounded-2xl border border-jkl-border bg-white p-4 shadow-sm">
+            <h2 className="text-base font-bold text-jkl-ink">Weekly report</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Week of {formatWeekLabel(currentWeek)}
+              {admin ? " · Admin view" : " · Instructor submit"}
+            </p>
+            {!admin ? (
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={weeklyNotes}
+                  onChange={(ev) => setWeeklyNotes(ev.target.value)}
+                  rows={4}
+                  placeholder="Summarize the week: attendance highlights, student wins, needs attention…"
+                  className="w-full rounded-xl border border-jkl-border px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  disabled={weeklyBusy || cloudDataDisabled}
+                  onClick={() => void submitWeeklyReport()}
+                  className="rounded-xl bg-jkl-navy px-4 py-2 text-sm font-semibold text-white hover:bg-jkl-navy-muted disabled:opacity-50"
+                >
+                  {weeklyBusy ? "Submitting…" : "Submit weekly report"}
+                </button>
+              </div>
+            ) : null}
+
+            <ul className="mt-4 space-y-3">
+              {(weeklyReports.length ? weeklyReports : [{ id: "pending", programId: programId ?? "", weekStart: currentWeek, status: "draft" } as WeeklyReportRow]).map((r) => {
+                const isPending = r.status !== "submitted";
+                const feedback = r.id !== "pending" ? feedbackByReport[r.id] ?? [] : [];
+                return (
+                  <li
+                    key={r.id}
+                    className={cn(
+                      "rounded-xl border px-4 py-3",
+                      isPending ? "border-amber-200 bg-amber-50/80" : "border-emerald-200 bg-emerald-50/50",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-jkl-ink">
+                          Week of {formatWeekLabel(r.weekStart)}
+                        </p>
+                        <span
+                          className={cn(
+                            "mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold",
+                            isPending ? "bg-amber-200 text-amber-950" : "bg-emerald-200 text-emerald-950",
+                          )}
+                        >
+                          {isPending ? "Not submitted" : "Submitted"}
+                        </span>
+                      </div>
+                      {admin && isPending && r.id !== "pending" ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={reminderBusyId === r.id}
+                            onClick={() => void remindInstructor(r, "email")}
+                            className="inline-flex items-center gap-1 rounded-lg bg-jkl-navy px-3 py-1.5 text-xs font-semibold text-white hover:bg-jkl-navy-muted disabled:opacity-50"
+                          >
+                            <Send className="h-3.5 w-3.5" aria-hidden />
+                            Email remind
+                          </button>
+                          <button
+                            type="button"
+                            disabled={reminderBusyId === r.id}
+                            onClick={() => void remindInstructor(r, "sms")}
+                            className="inline-flex items-center gap-1 rounded-lg border border-jkl-border bg-white px-3 py-1.5 text-xs font-semibold text-jkl-navy hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Text remind
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    {r.instructorNotes ? (
+                      <p className="mt-2 text-sm text-zinc-700">{r.instructorNotes}</p>
+                    ) : null}
+                    {admin && r.id !== "pending" ? (
+                      <div className="mt-3 border-t border-zinc-200/80 pt-3">
+                        <p className="flex items-center gap-1 text-xs font-semibold uppercase text-zinc-500">
+                          <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                          Admin feedback
+                        </p>
+                        {feedback.length > 0 ? (
+                          <ul className="mt-2 space-y-1">
+                            {feedback.map((f) => (
+                              <li key={f.id} className="rounded-lg bg-white px-2 py-1.5 text-sm text-zinc-700 ring-1 ring-zinc-100">
+                                {f.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-xs text-zinc-500">No feedback yet.</p>
+                        )}
+                        {feedbackApiReady ? (
+                          <div className="mt-2 flex gap-2">
+                            <input
+                              value={feedbackDraft[r.id] ?? ""}
+                              onChange={(ev) =>
+                                setFeedbackDraft((prev) => ({ ...prev, [r.id]: ev.target.value }))
+                              }
+                              placeholder="Leave feedback for instructor…"
+                              className="min-w-0 flex-1 rounded-lg border border-jkl-border px-2 py-1.5 text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void addFeedback(r.id)}
+                              className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700"
+                            >
+                              Post
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
 
         {backendHint ? (
           <div

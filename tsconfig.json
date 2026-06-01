@@ -23,5 +23,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "amplify", "vite.config.ts", "amplify_outputs.json"]
+  "include": ["src", "amplify/auth", "amplify/data", "amplify/storage", "amplify/backend.ts", "vite.config.ts", "amplify_outputs.json"],
+  "exclude": ["amplify/functions"]
 }
